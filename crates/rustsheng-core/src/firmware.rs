@@ -1,6 +1,8 @@
 //! Firmware image handling: detect raw vs vendor-encrypted images, decrypt when
 //! needed, strip the embedded version, and split into flash blocks.
 
+use log::debug;
+
 use crate::protocol::{crc16_xmodem, xor_firmware};
 
 /// Hard upper bound for a flashable image (the bootloader lives above this).
@@ -56,6 +58,7 @@ impl FirmwareImage {
             if data.len() > MAX_FLASH {
                 return Err(FirmwareError::TooLarge);
             }
+            debug!("firmware: raw image ({} bytes)", data.len());
             return Ok(Self {
                 data,
                 embedded_version: None,
@@ -83,6 +86,11 @@ impl FirmwareImage {
             embedded_version = Some(String::from_utf8_lossy(&raw[..end]).into_owned());
             data.drain(0x2000..0x2000 + 16);
         }
+        debug!(
+            "firmware: decrypted vendor image ({} bytes, version {:?})",
+            data.len(),
+            embedded_version.as_deref()
+        );
 
         if data.len() > MAX_FLASH {
             return Err(FirmwareError::TooLarge);

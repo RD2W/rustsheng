@@ -3,6 +3,8 @@
 
 use std::time::Duration;
 
+use log::{debug, info, trace};
+
 use crate::protocol::ProtocolError;
 use crate::protocol::{commands, deframe, frame};
 use crate::transport::{Transport, TransportError};
@@ -80,7 +82,9 @@ impl<T: Transport> Client<T> {
     /// Sends one command payload and returns the clear response payload.
     fn transaction(&mut self, payload: &[u8]) -> Result<Vec<u8>, ClientError> {
         self.transport.flush_input()?;
-        self.transport.write_all(&frame(payload))?;
+        let datagram = frame(payload);
+        trace!("TX {} bytes: {}", datagram.len(), hex(&datagram));
+        self.transport.write_all(&datagram)?;
         self.read_response()
     }
 
@@ -103,6 +107,7 @@ impl<T: Transport> Client<T> {
         let mut full = Vec::with_capacity(4 + rest.len());
         full.extend_from_slice(&header);
         full.extend_from_slice(&rest);
+        trace!("RX {} bytes: {}", full.len(), hex(&full));
         Ok(deframe(&full)?)
     }
 
@@ -111,6 +116,7 @@ impl<T: Transport> Client<T> {
     /// Returns [`ClientError::RadioInFlashMode`] if the radio replies with a
     /// `0x18` flash-mode broadcast instead of a `0x15` hello reply.
     pub fn hello(&mut self) -> Result<String, ClientError> {
+        debug!("hello: sending handshake");
         let reply = self.transaction(&commands::hello())?;
         if reply.first() == Some(&0x18) {
             return Err(ClientError::RadioInFlashMode);
@@ -123,13 +129,16 @@ impl<T: Transport> Client<T> {
         }
         let version_bytes = &reply[4..20];
         let end = version_bytes.iter().position(|&b| b == 0).unwrap_or(16);
-        Ok(String::from_utf8_lossy(&version_bytes[..end]).into_owned())
+        let version = String::from_utf8_lossy(&version_bytes[..end]).into_owned();
+        info!("connected to radio, firmware version: {version}");
+        Ok(version)
     }
 
     /// Retries [`hello`](Self::hello) up to [`HELLO_TRIES`] times.
     pub fn connect(&mut self) -> Result<String, ClientError> {
         let mut last = ClientError::NotDetected;
-        for _ in 0..HELLO_TRIES {
+        for attempt in 1..=HELLO_TRIES {
+            debug!("connect: hello attempt {attempt}/{HELLO_TRIES}");
             match self.hello() {
                 Ok(v) => return Ok(v),
                 Err(ClientError::RadioInFlashMode) => return Err(ClientError::RadioInFlashMode),
@@ -141,6 +150,7 @@ impl<T: Transport> Client<T> {
 
     /// Reads a single EEPROM block (`len` <= 0x80) at `addr`.
     pub fn read_eeprom(&mut self, addr: u16, len: u8) -> Result<Vec<u8>, ClientError> {
+        debug!("read_eeprom: addr={addr:#06x} len={len:#04x}");
         let reply = self.transaction(&commands::read_eeprom(addr, len))?;
         if reply.first() == Some(&0x18) {
             return Err(ClientError::RadioInFlashMode);
@@ -189,6 +199,7 @@ impl<T: Transport> Client<T> {
 
     /// Writes one EEPROM block and verifies the radio's `0x1e` confirmation.
     pub fn write_block(&mut self, addr: u16, data: &[u8]) -> Result<(), ClientError> {
+        debug!("write_block: addr={addr:#06x} len={:#04x}", data.len());
         let reply = self.transaction(&commands::write_eeprom(addr, data))?;
         if reply.first() == Some(&0x18) {
             return Err(ClientError::RadioInFlashMode);
@@ -205,6 +216,7 @@ impl<T: Transport> Client<T> {
 
     /// Reads the battery ADC value (reply `0x2a`).
     pub fn read_adc(&mut self) -> Result<AdcInfo, ClientError> {
+        debug!("read_adc: requesting battery ADC");
         let reply = self.transaction(&commands::read_adc())?;
         if reply.first() == Some(&0x18) {
             return Err(ClientError::RadioInFlashMode);
@@ -219,6 +231,7 @@ impl<T: Transport> Client<T> {
 
     /// Reads RSSI/noise/glitch (reply `0x28`).
     pub fn read_rssi(&mut self) -> Result<RssiInfo, ClientError> {
+        debug!("read_rssi: requesting RSSI/noise/glitch");
         let reply = self.transaction(&commands::read_rssi())?;
         if reply.first() == Some(&0x18) {
             return Err(ClientError::RadioInFlashMode);
@@ -237,6 +250,7 @@ impl<T: Transport> Client<T> {
 
     /// Reboots the radio (fire-and-forget; no reply expected).
     pub fn reset(&mut self) -> Result<(), ClientError> {
+        debug!("reset: rebooting radio");
         self.transport.flush_input()?;
         self.transport.write_all(&frame(&commands::reset()))?;
         Ok(())
@@ -245,6 +259,7 @@ impl<T: Transport> Client<T> {
     /// Waits for the radio's `0x18` flash-mode broadcast and returns the
     /// bootloader version string when the packet carries one.
     pub fn wait_flash_broadcast(&mut self) -> Result<Option<String>, ClientError> {
+        debug!("wait_flash_broadcast: waiting for the 0x18 flash-mode broadcast");
         let reply = self.read_response()?;
         if reply.len() < 2 || reply[0] != 0x18 || reply[1] != 0x05 {
             return Err(ClientError::Unexpected("flash broadcast".into()));
@@ -263,6 +278,7 @@ impl<T: Transport> Client<T> {
 
     /// Sends the firmware version to the bootloader (flash mode only).
     pub fn send_flash_version(&mut self, version: &str) -> Result<(), ClientError> {
+        debug!("send_flash_version: {version}");
         let _ = self.transaction(&commands::flash_version(version))?;
         Ok(())
     }
@@ -275,6 +291,10 @@ impl<T: Transport> Client<T> {
         data: &[u8],
         firmware_size: usize,
     ) -> Result<(), ClientError> {
+        debug!(
+            "write_flash_block: offset={offset:#06x} len={:#04x}",
+            data.len()
+        );
         self.transport.flush_input()?;
         self.transport
             .write_all(&frame(&commands::write_flash(offset, data, firmware_size)))?;
@@ -309,12 +329,29 @@ impl<T: Transport> Client<T> {
     ) -> Result<(), ClientError> {
         self.send_flash_version(version)?;
         let size = image.data.len();
+        info!(
+            "flash_firmware: writing {size} bytes in {} blocks",
+            image.blocks().len()
+        );
         for (offset, chunk) in image.blocks() {
             self.write_flash_block(offset, chunk, size)?;
             progress((offset as usize) + chunk.len());
         }
         Ok(())
     }
+}
+
+/// Formats bytes as space-separated lowercase hex, for `trace!` diagnostics.
+fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut s = String::with_capacity(bytes.len() * 3);
+    for (i, b) in bytes.iter().enumerate() {
+        if i > 0 {
+            s.push(' ');
+        }
+        let _ = write!(s, "{b:02x}");
+    }
+    s
 }
 
 #[cfg(test)]
