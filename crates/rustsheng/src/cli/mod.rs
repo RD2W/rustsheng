@@ -9,7 +9,18 @@ pub mod commands;
 
 /// Program-and-flash tool for Quansheng UV-K5 radios.
 #[derive(Debug, Parser)]
-#[command(name = "rustsheng", version, about)]
+#[command(
+    name = "rustsheng",
+    version,
+    author,
+    about,
+    help_template = "\
+{name} {version}
+{author-with-newline}{about-with-newline}
+{usage-heading} {usage}
+
+{all-args}{after-help}"
+)]
 pub struct Cli {
     /// Increase verbosity (repeat for more: -v, -vv, -vvv).
     #[arg(short, long, action = clap::ArgAction::Count, global = true)]
