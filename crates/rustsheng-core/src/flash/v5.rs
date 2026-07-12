@@ -6,7 +6,7 @@
 
 use super::{FLASH_BLOCK, FlashProtocol, make_write_payload};
 use aes::Aes128;
-use aes::cipher::{BlockEncryptMut, KeyIvInit, generic_array::GenericArray};
+use aes::cipher::{Array, BlockModeEncrypt, KeyIvInit};
 
 type Aes128CbcEnc = cbc::Encryptor<Aes128>;
 
@@ -74,7 +74,7 @@ pub(super) struct AesStream {
 impl AesStream {
     pub(super) fn new(key: &[u8; 16], iv: &[u8; 16]) -> Self {
         Self {
-            enc: Aes128CbcEnc::new(key.into(), iv.into()),
+            enc: Aes128CbcEnc::new(Array::from_slice(key), Array::from_slice(iv)),
         }
     }
 
@@ -84,9 +84,9 @@ impl AesStream {
             buf.len().is_multiple_of(16),
             "AES-CBC input must be a multiple of 16"
         );
-        for chunk in buf.chunks_mut(16) {
-            let block = GenericArray::from_mut_slice(chunk);
-            self.enc.encrypt_block_mut(block);
+        for chunk in buf.chunks_exact_mut(16) {
+            let block = Array::from_mut_slice(chunk);
+            self.enc.encrypt_block(block);
         }
     }
 }
