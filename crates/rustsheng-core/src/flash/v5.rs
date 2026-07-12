@@ -4,6 +4,7 @@
 
 //! V5 (AES-CBC-128) flash protocol.
 
+use super::{FLASH_BLOCK, FlashProtocol, make_write_payload};
 use aes::Aes128;
 use aes::cipher::{BlockEncryptMut, KeyIvInit, generic_array::GenericArray};
 
@@ -83,6 +84,91 @@ impl AesStream {
             let block = GenericArray::from_mut_slice(chunk);
             self.enc.encrypt_block_mut(block);
         }
+    }
+}
+
+/// AES-CBC-128 flash protocol (bootloader beacon `0x057a`).
+pub struct ProtocolV5 {
+    key_number: u8,
+    stream: Option<AesStream>,
+}
+
+impl ProtocolV5 {
+    /// Creates a V5 protocol handler using AES key pair `key_number` (0..15).
+    pub fn new(key_number: u8) -> Self {
+        Self {
+            key_number,
+            stream: None,
+        }
+    }
+}
+
+impl FlashProtocol for ProtocolV5 {
+    fn beacon_id(&self) -> u16 {
+        0x057a
+    }
+
+    fn ack_id(&self) -> u16 {
+        0x057c
+    }
+
+    fn version_packet(&self, version: &str) -> Vec<u8> {
+        let mut p = vec![0x7d, 0x05, 0x14, 0x00];
+        let mut field = [0u8; 16];
+        let bytes = version.as_bytes();
+        let n = bytes.len().min(16);
+        field[..n].copy_from_slice(&bytes[..n]);
+        p.extend_from_slice(&field);
+        p.push(self.key_number);
+        p.extend_from_slice(&[0x00, 0x00, 0x00]);
+        p
+    }
+
+    fn begin(&mut self) {
+        let (key, iv) = key_iv(self.key_number);
+        self.stream = Some(AesStream::new(&key, &iv));
+    }
+
+    fn write_packet(
+        &mut self,
+        chunk_no: u16,
+        chunk_count: u16,
+        block: &[u8; FLASH_BLOCK],
+        len: u16,
+        id: u32,
+    ) -> Vec<u8> {
+        let mut cipher = *block;
+        self.stream
+            .as_mut()
+            .expect("begin() must be called before write_packet")
+            .encrypt(&mut cipher);
+        make_write_payload(0x7b, chunk_no, chunk_count, &cipher, len, id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::flash::WRITE_ID;
+
+    #[test]
+    fn version_packet_layout() {
+        let p = ProtocolV5::new(3).version_packet("5.00.05");
+        assert_eq!(&p[0..4], &[0x7d, 0x05, 0x14, 0x00]);
+        assert_eq!(&p[4..11], b"5.00.05");
+        assert_eq!(p[20], 3); // key_number after 16 version bytes
+        assert_eq!(p.len(), 24);
+    }
+
+    #[test]
+    fn write_packet_encrypts_and_uses_0x7b() {
+        let block = [0u8; FLASH_BLOCK];
+        let mut proto = ProtocolV5::new(0);
+        proto.begin();
+        let p = proto.write_packet(0, 1, &block, 0x100, WRITE_ID);
+        assert_eq!(p[0], 0x7b);
+        // Ciphertext of an all-zero block is not all-zero.
+        assert!(p[16..].iter().any(|&b| b != 0));
     }
 }
 
