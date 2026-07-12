@@ -21,7 +21,7 @@ impl Cpu {
         match self {
             Self::Dp32g030 => 0xf000,
             Self::Py32f030 => 0x10000,
-            Self::Py32f071 => 0x11000,
+            Self::Py32f071 => 0x12000,
         }
     }
 }
@@ -30,7 +30,6 @@ impl Cpu {
 ///
 /// `raw` must be at least 0x3c (60) bytes — the ARM vector table up to and
 /// including the SysTick handler slot at offset 0x38.
-#[allow(dead_code)] // consumed in Task 2 (FirmwareImage::load integration)
 pub(crate) fn detect_cpu(raw: &[u8]) -> Cpu {
     if raw.len() < 0x3c {
         return Cpu::Dp32g030;
@@ -101,21 +100,19 @@ mod tests {
     }
 
     #[test]
-    fn stock_k1_is_py32f071() {
+    fn stock_k1_encrypted_raw_is_dp32g030() {
         let raw = read_fw("k1_packed_v7.03.01.bin");
-        // Vendor image — the detect_cpu on the encrypted bytes returns Dp32g030
-        // (fallback). We test the detection on the raw bytes after unpack.
-        let _img = FirmwareImage::load(&raw); // currently fails with TooLarge
-        // When load passes after T2, assert the CPU:
-        // assert_eq!(detect_cpu(&img.unwrap().data), Cpu::Py32f071);
-        // For now, just verify detect_cpu on the encrypted bytes returns Dp32g030:
         assert_eq!(detect_cpu(&raw), Cpu::Dp32g030);
+        // With the extended limit (0x14000), the K1 stock vendor image now
+        // loads successfully (71450 bytes after decryption).
+        let img = FirmwareImage::load(&raw).expect("k1 packed should load");
+        assert_eq!(img.cpu, Cpu::Dp32g030);
     }
 
     #[test]
     fn flash_limits_are_distinct() {
         assert_eq!(Cpu::Dp32g030.flash_limit(), 0xf000);
         assert_eq!(Cpu::Py32f030.flash_limit(), 0x10000);
-        assert_eq!(Cpu::Py32f071.flash_limit(), 0x11000);
+        assert_eq!(Cpu::Py32f071.flash_limit(), 0x12000);
     }
 }
