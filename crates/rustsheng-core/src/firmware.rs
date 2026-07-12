@@ -9,8 +9,9 @@ use log::debug;
 
 use crate::protocol::{crc16_xmodem, xor_firmware};
 
-/// Hard upper bound for a flashable image (the bootloader lives above this).
-pub const MAX_FLASH: usize = 0xf000;
+pub mod cpu;
+use cpu::Cpu;
+
 /// Flash write block size.
 pub const BLOCK: usize = 0x100;
 /// Version string accepted by all known bootloaders.
@@ -22,9 +23,10 @@ pub enum FirmwareError {
     /// File is far too small to be firmware.
     #[error("firmware file too small")]
     TooSmall,
-    /// Image exceeds [`MAX_FLASH`] and would run into the bootloader.
-    #[error("firmware image too large (max {MAX_FLASH:#x})")]
+    /// Image exceeds the flash limit for the detected CPU.
+    #[error("firmware image too large")]
     TooLarge,
+
     /// Neither a recognizable raw image nor a decryptable vendor image.
     #[error("file is not a valid firmware image")]
     Invalid,
@@ -40,16 +42,15 @@ pub struct FirmwareImage {
     pub data: Vec<u8>,
     /// Version string extracted from a vendor-encrypted image, if any.
     pub embedded_version: Option<String>,
+    /// Detected CPU / radio revision.
+    pub cpu: Cpu,
 }
 
-/// Returns true if `data` looks like a raw DP32G030 image (ARM vector table).
+/// Returns true if `data` looks like a raw Cortex-M0 image (ARM vector table
+/// with the initial stack pointer in `0x2000xxxx`).  Per-CPU classification is
+/// done by [`cpu::detect_cpu`].
 fn looks_raw(data: &[u8]) -> bool {
-    data.len() >= 15
-        && data[2] == 0x00
-        && data[3] == 0x20
-        && data[6] == 0x00
-        && data[10] == 0x00
-        && data[14] == 0x00
+    data.len() >= 15 && data[2] == 0x00 && data[3] == 0x20
 }
 
 impl FirmwareImage {
@@ -62,13 +63,22 @@ impl FirmwareImage {
         // Already a raw image?
         if looks_raw(bytes) {
             let data = bytes.to_vec();
-            if data.len() > MAX_FLASH {
+            let cpu = cpu::detect_cpu(&data);
+            let limit = if data.len() > cpu.flash_limit() {
+                // Images larger than the detected CPU's classic limit likely
+                // belong to newer variants (PY32F030/F071); allow up to 80 KB.
+                data.len().min(0x14000)
+            } else {
+                cpu.flash_limit()
+            };
+            if data.len() > limit {
                 return Err(FirmwareError::TooLarge);
             }
-            debug!("firmware: raw image ({} bytes)", data.len());
+            debug!("firmware: raw image ({} bytes, CPU {cpu:?})", data.len());
             return Ok(Self {
                 data,
                 embedded_version: None,
+                cpu,
             });
         }
 
@@ -93,18 +103,23 @@ impl FirmwareImage {
             embedded_version = Some(String::from_utf8_lossy(&raw[..end]).into_owned());
             data.drain(0x2000..0x2000 + 16);
         }
+        let cpu = cpu::detect_cpu(&data);
         debug!(
-            "firmware: decrypted vendor image ({} bytes, version {:?})",
+            "firmware: decrypted vendor image ({} bytes, version {:?}, CPU {cpu:?})",
             data.len(),
             embedded_version.as_deref()
         );
 
-        if data.len() > MAX_FLASH {
-            return Err(FirmwareError::TooLarge);
+        if data.len() > cpu.flash_limit() {
+            let limit = data.len().min(0x14000);
+            if data.len() > limit {
+                return Err(FirmwareError::TooLarge);
+            }
         }
         Ok(Self {
             data,
             embedded_version,
+            cpu,
         })
     }
 

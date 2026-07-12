@@ -347,7 +347,9 @@ fn flash(
         }
         fs::write(&out, &blob).with_context(|| format!("writing {}", out.display()))?;
         println!(
-            "Dry run: {} datagrams ({} bytes) written to {}",
+            "Dry-run: CPU {:?} (flash limit {:#x}), {} datagrams ({} bytes) written to {}",
+            image.cpu,
+            image.cpu.flash_limit(),
             seq.len(),
             blob.len(),
             out.display()
@@ -407,6 +409,11 @@ fn unpack(input: &Path, output: Option<&Path>) -> Result<()> {
     if let Some(v) = &image.embedded_version {
         println!("Embedded version: {v}");
     }
+    println!(
+        "Detected CPU: {:?} (flash limit {:#x})",
+        image.cpu,
+        image.cpu.flash_limit()
+    );
     let out = output
         .map(PathBuf::from)
         .unwrap_or_else(|| input.with_extension("raw"));

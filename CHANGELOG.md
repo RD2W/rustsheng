@@ -15,6 +15,10 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Firmware flashing with beacon-selected protocol: **V2** (unencrypted) and
   **V5** (AES-CBC-128, behind the default `flash-v5` feature). Includes a
   `--dry-run` packet preview and V2≥3 / V5≥5 confirmation gating.
+- Firmware loading now supports V2 (PY32F030), V3 and K1 (PY32F071) radio
+  revisions, including custom firmware images. Images larger than the classic
+  V1 limit (0xf000) are automatically allowed up to 0x14000.
+- Per-CPU flash-size limits and automatic CPU detection from the vector table.
 - Offline firmware tools: `pack`, `unpack`, `parse`.
 - `sniffer` — passive datagram decoding.
 - Verbose logging (`-v`/`-vv`/`-vvv`).

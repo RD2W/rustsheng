@@ -74,4 +74,5 @@ cargo build -p rustsheng-core --no-default-features     # ядро без serial
 команды EEPROM и таблица `ORIGINAL_WRITES` взяты из `k5prog`; XOR-ключ для
 прошивки, ADC/RSSI и определение зашифрованной прошивки — из `k5prog-win`;
 форматы пакетов V2/V5 flash, таблица ключей/IV AES и логика `pack` — из
-`K5TOOL`.
+`K5TOOL`. Расширенное ограничение размера flash для V2/V3/K1 (0x14000) основано
+на эвристике `data.Length > 0x10000` из K5TOOL.
