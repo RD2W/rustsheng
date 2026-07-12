@@ -24,7 +24,13 @@ else ifeq ($(PLATFORM),mac)
     TARGETS = x86_64-apple-darwin aarch64-apple-darwin
 endif
 
-.PHONY: all build build-all build-platform install-targets clean install-deps test run help
+# CLI binary name and version (version is read from the workspace Cargo.toml)
+BINARY_NAME = rustsheng
+VERSION := $(shell grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+OUTPUT_DIR = builds
+ARCHIVE_PREFIX = $(BINARY_NAME)_v$(VERSION)
+
+.PHONY: all build build-all build-platform install-targets clean install-deps test run help version package
 
 # Default target
 all: build
@@ -82,6 +88,22 @@ test:
 run:
 	cargo run -p rustsheng --
 
+# Print the version read from Cargo.toml
+version:
+	@echo $(VERSION)
+
+# Build the current-platform release binary and archive it with the version
+# in the file name (e.g. builds/rustsheng_v0.1.0_linux.tar.gz).
+package: build
+	@mkdir -p $(OUTPUT_DIR)
+	@cp target/release/$(BINARY_NAME)$(EXT) $(OUTPUT_DIR)/$(BINARY_NAME)$(EXT)
+	@if [ "$(PLATFORM)" = "windows" ]; then \
+		cd $(OUTPUT_DIR) && zip -q $(ARCHIVE_PREFIX)_$(PLATFORM).zip $(BINARY_NAME)$(EXT); \
+	else \
+		tar -czf $(OUTPUT_DIR)/$(ARCHIVE_PREFIX)_$(PLATFORM).tar.gz -C $(OUTPUT_DIR) $(BINARY_NAME)$(EXT); \
+	fi
+	@echo "Packaged $(OUTPUT_DIR)/$(ARCHIVE_PREFIX)_$(PLATFORM)"
+
 # Show available targets
 help:
 	@echo "Available targets:"
@@ -94,6 +116,8 @@ help:
 	@echo "  install-deps     - Check the toolchain and dependencies"
 	@echo "  test             - Run the test suite"
 	@echo "  run              - Run the CLI binary"
+	@echo "  version          - Print the version from Cargo.toml"
+	@echo "  package          - Build and archive the current-platform binary"
 	@echo "  help             - Show this message"
 	@echo ""
 	@echo "Examples:"

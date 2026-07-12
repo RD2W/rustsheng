@@ -1,5 +1,8 @@
 /target
 
+# Build/packaging output
+/builds/
+
 # IDE
 /.idea/
 
