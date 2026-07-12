@@ -52,7 +52,7 @@ pub enum Command {
     /// List available serial ports.
     ScanPorts,
 
-    /// Read the full EEPROM to a file.
+    /// Read the EEPROM to a file (full image, or a range with --offset/--size).
     #[command(visible_alias = "r")]
     ReadEeprom {
         #[command(flatten)]
@@ -60,19 +60,28 @@ pub enum Command {
         /// Output file.
         #[arg(short, long, default_value = "k5_eeprom.raw")]
         output: PathBuf,
+        /// Start offset (decimal or 0x-hex; default 0).
+        #[arg(long, value_parser = parse_u32)]
+        offset: Option<u32>,
+        /// Number of bytes to read (decimal or 0x-hex; default: to end of EEPROM).
+        #[arg(long, value_parser = parse_u32)]
+        size: Option<u32>,
     },
 
-    /// Write the EEPROM from a file.
+    /// Write the EEPROM from a file (full image, or a range with --offset).
     #[command(visible_alias = "w")]
     WriteEeprom {
         #[command(flatten)]
         conn: ConnectionOpts,
-        /// Input file (must be exactly 0x2000 bytes).
+        /// Input file (full-image mode: exactly 0x2000 bytes).
         #[arg(short, long)]
         input: PathBuf,
-        /// Which blocks to write.
+        /// Which blocks to write (full-image mode only).
         #[arg(long, value_enum, default_value_t = WriteModeArg::Original)]
         mode: WriteModeArg,
+        /// Write the file at this offset instead of a full image (decimal or 0x-hex).
+        #[arg(long, value_parser = parse_u32)]
+        offset: Option<u32>,
         /// Confirm dangerous operations (repeat to raise the confidence level).
         #[arg(long = "i-know-what-im-doing", action = clap::ArgAction::Count)]
         confirm: u8,
@@ -134,6 +143,43 @@ pub enum Command {
         #[arg(long = "i-know-what-im-doing", action = clap::ArgAction::Count)]
         confirm: u8,
     },
+
+    /// Decrypt a vendor-packed firmware image to a raw image (offline).
+    Unpack {
+        /// Packed (or already-raw) firmware file.
+        #[arg(short, long)]
+        input: PathBuf,
+        /// Output raw image (default: <input>.raw).
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+
+    /// Pack a raw firmware image into the vendor format (offline).
+    Pack {
+        /// Raw firmware file.
+        #[arg(short, long)]
+        input: PathBuf,
+        /// Version string embedded at 0x2000.
+        #[arg(short = 'M', long, default_value = "*.01.23")]
+        fw_version: String,
+        /// Output packed image (default: <input>.packed.bin).
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+
+    /// Decode a hex datagram and print its payload (offline).
+    Parse {
+        /// Datagram as a hex string (e.g. `abcd0800...dcba`).
+        hex: String,
+    },
+}
+
+/// Parses an unsigned integer, accepting `0x`/`0X` hex or decimal.
+fn parse_u32(s: &str) -> Result<u32, std::num::ParseIntError> {
+    match s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        Some(hex) => u32::from_str_radix(hex, 16),
+        None => s.parse(),
+    }
 }
 
 /// CLI mirror of [`rustsheng_core::eeprom::WriteMode`].

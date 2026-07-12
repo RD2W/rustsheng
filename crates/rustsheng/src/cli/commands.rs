@@ -5,13 +5,14 @@
 //! Subcommand handlers.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use rustsheng_core::client::Client;
 use rustsheng_core::eeprom::{self, WriteMode};
-use rustsheng_core::firmware::FirmwareImage;
+use rustsheng_core::firmware::{self, FirmwareImage};
+use rustsheng_core::protocol;
 use rustsheng_core::transport::serial::{self, SerialTransport};
 
 use super::{Command, ConnectionOpts};
@@ -27,13 +28,19 @@ pub fn open_client(opts: &ConnectionOpts) -> Result<Client<SerialTransport>> {
 pub fn dispatch(command: Command) -> Result<()> {
     match command {
         Command::ScanPorts => scan_ports(),
-        Command::ReadEeprom { conn, output } => read_eeprom(&conn, &output),
+        Command::ReadEeprom {
+            conn,
+            output,
+            offset,
+            size,
+        } => read_eeprom(&conn, &output, offset, size),
         Command::WriteEeprom {
             conn,
             input,
             mode,
+            offset,
             confirm,
-        } => write_eeprom(&conn, &input, mode.into(), confirm),
+        } => write_eeprom(&conn, &input, mode.into(), offset, confirm),
         Command::ReadCalibration { conn, output } => read_calibration(&conn, &output),
         Command::WriteCalibration {
             conn,
@@ -50,6 +57,13 @@ pub fn dispatch(command: Command) -> Result<()> {
             fw_version,
             confirm,
         } => flash(&conn, &input, &fw_version, confirm),
+        Command::Unpack { input, output } => unpack(&input, output.as_deref()),
+        Command::Pack {
+            input,
+            fw_version,
+            output,
+        } => pack(&input, &fw_version, output.as_deref()),
+        Command::Parse { hex } => parse(&hex),
     }
 }
 
@@ -76,28 +90,62 @@ fn progress_bar(total: usize, label: &str) -> ProgressBar {
     pb
 }
 
-fn read_eeprom(opts: &ConnectionOpts, output: &Path) -> Result<()> {
+fn read_eeprom(
+    opts: &ConnectionOpts,
+    output: &Path,
+    offset: Option<u32>,
+    size: Option<u32>,
+) -> Result<()> {
+    let start = offset.unwrap_or(0) as usize;
+    let len = size
+        .map(|s| s as usize)
+        .unwrap_or(eeprom::SIZE - start.min(eeprom::SIZE));
+    if start + len > eeprom::SIZE {
+        anyhow::bail!(
+            "range {start:#06x}..{:#06x} exceeds EEPROM size {:#06x}",
+            start + len,
+            eeprom::SIZE
+        );
+    }
     let mut client = open_client(opts)?;
     let version = client.connect().context("connecting to radio")?;
     println!("Connected to firmware: {version}");
-    let pb = progress_bar(eeprom::SIZE, "reading");
+    let pb = progress_bar(len, "reading");
     let data = client
-        .read_eeprom_full(&mut |done| pb.set_position(done as u64))
+        .read_region(start, len, &mut |done| pb.set_position(done as u64))
         .context("reading EEPROM")?;
     pb.finish_and_clear();
     fs::write(output, &data).with_context(|| format!("writing {}", output.display()))?;
-    println!("Wrote {} bytes to {}", data.len(), output.display());
+    println!(
+        "Wrote {} bytes ({:#06x}..{:#06x}) to {}",
+        data.len(),
+        start,
+        start + data.len(),
+        output.display()
+    );
     Ok(())
 }
 
-fn write_eeprom(opts: &ConnectionOpts, input: &Path, mode: WriteMode, confirm: u8) -> Result<()> {
+fn write_eeprom(
+    opts: &ConnectionOpts,
+    input: &Path,
+    mode: WriteMode,
+    offset: Option<u32>,
+    confirm: u8,
+) -> Result<()> {
+    let data = fs::read(input).with_context(|| format!("reading {}", input.display()))?;
+
+    // Partial write: place the file at an explicit offset (advanced).
+    if let Some(off) = offset {
+        return write_eeprom_at(opts, &data, off as usize, confirm);
+    }
+
     if mode == WriteMode::All && confirm < 1 {
         anyhow::bail!(
             "refusing to write ALL EEPROM (including calibration). \
              Re-run with --i-know-what-im-doing to proceed."
         );
     }
-    let data = fs::read(input).with_context(|| format!("reading {}", input.display()))?;
     if data.len() != eeprom::SIZE {
         anyhow::bail!("EEPROM file must be exactly {} bytes", eeprom::SIZE);
     }
@@ -119,6 +167,41 @@ fn write_eeprom(opts: &ConnectionOpts, input: &Path, mode: WriteMode, confirm: u
     pb.finish_and_clear();
     client.reset().ok();
     println!("EEPROM written");
+    Ok(())
+}
+
+/// Partial EEPROM write: place `data` at `offset`, split into block-sized writes.
+fn write_eeprom_at(opts: &ConnectionOpts, data: &[u8], offset: usize, confirm: u8) -> Result<()> {
+    if confirm < 1 {
+        anyhow::bail!(
+            "partial EEPROM write at {offset:#06x} is an advanced operation. \
+             Re-run with --i-know-what-im-doing to proceed."
+        );
+    }
+    if offset + data.len() > eeprom::SIZE {
+        anyhow::bail!(
+            "range {offset:#06x}..{:#06x} exceeds EEPROM size {:#06x}",
+            offset + data.len(),
+            eeprom::SIZE
+        );
+    }
+    let mut client = open_client(opts)?;
+    let version = client.connect().context("connecting to radio")?;
+    println!("Connected to firmware: {version}");
+    let pb = progress_bar(data.len(), "writing");
+    let mut done = 0;
+    while done < data.len() {
+        let len = eeprom::BLOCK.min(data.len() - done);
+        let addr = (offset + done) as u16;
+        client
+            .write_block(addr, &data[done..done + len])
+            .with_context(|| format!("writing block {addr:#06x}"))?;
+        done += len;
+        pb.set_position(done as u64);
+    }
+    pb.finish_and_clear();
+    client.reset().ok();
+    println!("Wrote {} bytes at {offset:#06x}", data.len());
     Ok(())
 }
 
@@ -251,4 +334,75 @@ fn flash(opts: &ConnectionOpts, input: &Path, fw_version: &str, confirm: u8) -> 
     client.reset().ok();
     println!("Firmware flashed");
     Ok(())
+}
+
+/// `unpack`: decrypt a vendor-packed firmware image to a raw image (offline).
+fn unpack(input: &Path, output: Option<&Path>) -> Result<()> {
+    let bytes = fs::read(input).with_context(|| format!("reading {}", input.display()))?;
+    let image = FirmwareImage::load(&bytes).context("parsing firmware image")?;
+    if let Some(v) = &image.embedded_version {
+        println!("Embedded version: {v}");
+    }
+    let out = output
+        .map(PathBuf::from)
+        .unwrap_or_else(|| input.with_extension("raw"));
+    fs::write(&out, &image.data).with_context(|| format!("writing {}", out.display()))?;
+    println!("Unpacked {} bytes to {}", image.data.len(), out.display());
+    Ok(())
+}
+
+/// `pack`: pack a raw firmware image into the vendor format (offline).
+fn pack(input: &Path, version: &str, output: Option<&Path>) -> Result<()> {
+    let raw = fs::read(input).with_context(|| format!("reading {}", input.display()))?;
+    let packed = firmware::pack(&raw, version).context("packing firmware")?;
+    let out = output
+        .map(PathBuf::from)
+        .unwrap_or_else(|| input.with_extension("packed.bin"));
+    fs::write(&out, &packed).with_context(|| format!("writing {}", out.display()))?;
+    println!(
+        "Packed {} bytes to {} (version {version})",
+        packed.len(),
+        out.display()
+    );
+    Ok(())
+}
+
+/// `parse`: decode a hex datagram and print its clear payload (offline).
+fn parse(hex: &str) -> Result<()> {
+    let bytes = decode_hex(hex).context("parsing hex input")?;
+    let payload = protocol::deframe(&bytes).context("decoding datagram")?;
+    println!(
+        "Payload ({} bytes): {}",
+        payload.len(),
+        encode_hex(&payload)
+    );
+    if let Some(&cmd) = payload.first() {
+        println!("Command: {cmd:#04x}");
+    }
+    Ok(())
+}
+
+/// Decodes a hex string (whitespace ignored) into bytes.
+fn decode_hex(s: &str) -> Result<Vec<u8>> {
+    let clean: String = s.chars().filter(|c| !c.is_whitespace()).collect();
+    if !clean.len().is_multiple_of(2) {
+        anyhow::bail!("hex string must have an even number of digits");
+    }
+    (0..clean.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&clean[i..i + 2], 16).map_err(anyhow::Error::from))
+        .collect()
+}
+
+/// Formats bytes as space-separated lowercase hex.
+fn encode_hex(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(bytes.len() * 3);
+    for (i, b) in bytes.iter().enumerate() {
+        if i > 0 {
+            out.push(' ');
+        }
+        let _ = write!(out, "{b:02x}");
+    }
+    out
 }
