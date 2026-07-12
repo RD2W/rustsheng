@@ -129,7 +129,7 @@ pub enum Command {
         conn: ConnectionOpts,
     },
 
-    /// Flash a firmware image (raw or vendor-encrypted .bin).
+    /// Flash a firmware image (raw or vendor-encrypted .bin). NOT hardware-validated.
     #[command(visible_alias = "F")]
     Flash {
         #[command(flatten)]
@@ -140,6 +140,18 @@ pub enum Command {
         /// Version string sent to the bootloader.
         #[arg(short = 'M', long, default_value = "*.01.23")]
         fw_version: String,
+        /// V5 AES key pair number (0..15).
+        #[arg(long, default_value_t = 0)]
+        key_number: u8,
+        /// Build the packet stream and write it to a file instead of flashing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Protocol for --dry-run (live mode auto-detects via beacon).
+        #[arg(long, value_enum, default_value_t = FlashProtocolArg::V2)]
+        protocol: FlashProtocolArg,
+        /// --dry-run output file (default: <input>.packets.bin).
+        #[arg(short, long)]
+        output: Option<PathBuf>,
         #[arg(long = "i-know-what-im-doing", action = clap::ArgAction::Count)]
         confirm: u8,
     },
@@ -185,6 +197,24 @@ fn parse_u32(s: &str) -> Result<u32, std::num::ParseIntError> {
     match s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
         Some(hex) => u32::from_str_radix(hex, 16),
         None => s.parse(),
+    }
+}
+
+/// Flash protocol selector for `--dry-run`.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum FlashProtocolArg {
+    /// Unencrypted (bootloader 0x0518).
+    V2,
+    /// AES-CBC-128 (bootloader 0x057a).
+    V5,
+}
+
+impl From<FlashProtocolArg> for rustsheng_core::flash::FlashKind {
+    fn from(p: FlashProtocolArg) -> Self {
+        match p {
+            FlashProtocolArg::V2 => Self::V2,
+            FlashProtocolArg::V5 => Self::V5,
+        }
     }
 }
 

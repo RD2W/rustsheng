@@ -55,8 +55,21 @@ pub fn dispatch(command: Command) -> Result<()> {
             conn,
             input,
             fw_version,
+            key_number,
+            dry_run,
+            protocol,
+            output,
             confirm,
-        } => flash(&conn, &input, &fw_version, confirm),
+        } => flash(
+            &conn,
+            &input,
+            &fw_version,
+            key_number,
+            dry_run,
+            protocol.into(),
+            output.as_deref(),
+            confirm,
+        ),
         Command::Unpack { input, output } => unpack(&input, output.as_deref()),
         Command::Pack {
             input,
@@ -292,42 +305,84 @@ fn bootloader_info(opts: &ConnectionOpts) -> Result<()> {
     Ok(())
 }
 
-fn flash(opts: &ConnectionOpts, input: &Path, fw_version: &str, confirm: u8) -> Result<()> {
-    if confirm < 3 {
-        anyhow::bail!(
-            "flashing firmware can permanently brick your radio. \
-             Re-run with -M and at least three --i-know-what-im-doing flags to proceed."
-        );
-    }
+#[allow(clippy::too_many_arguments)]
+fn flash(
+    opts: &ConnectionOpts,
+    input: &Path,
+    fw_version: &str,
+    key_number: u8,
+    dry_run: bool,
+    protocol: rustsheng_core::flash::FlashKind,
+    output: Option<&Path>,
+    confirm: u8,
+) -> Result<()> {
     let bytes = fs::read(input).with_context(|| format!("reading {}", input.display()))?;
     let image = FirmwareImage::load(&bytes).context("parsing firmware image")?;
     if let Some(v) = &image.embedded_version {
         println!("Firmware file version: {v}");
     }
-    if image.data.len() < 50_000 && confirm < 5 {
+    let version = image
+        .embedded_version
+        .clone()
+        .unwrap_or_else(|| fw_version.to_string());
+
+    if dry_run {
+        let seq = rustsheng_core::flash::build_sequence(
+            protocol,
+            &image,
+            &version,
+            key_number,
+            rustsheng_core::flash::WRITE_ID,
+        )
+        .context("building flash packet sequence")?;
+        let out = output
+            .map(PathBuf::from)
+            .unwrap_or_else(|| input.with_extension("packets.bin"));
+        let mut blob = Vec::new();
+        for dg in &seq {
+            blob.extend_from_slice(dg);
+        }
+        fs::write(&out, &blob).with_context(|| format!("writing {}", out.display()))?;
+        println!(
+            "Dry run: {} datagrams ({} bytes) written to {}",
+            seq.len(),
+            blob.len(),
+            out.display()
+        );
+        return Ok(());
+    }
+
+    // Live flashing (NOT validated on real hardware).
+    let need = match protocol {
+        rustsheng_core::flash::FlashKind::V5 => 5,
+        rustsheng_core::flash::FlashKind::V2 => 3,
+    };
+    if confirm < need {
+        anyhow::bail!(
+            "flashing can permanently brick your radio and is NOT hardware-validated. \
+             Re-run with at least {need} --i-know-what-im-doing flags to proceed."
+        );
+    }
+    if image.data.len() < 50_000 && confirm < need + 2 {
         anyhow::bail!(
             "firmware image is unusually small ({} bytes); \
-             re-run with five --i-know-what-im-doing flags if this is intentional",
-            image.data.len()
+             re-run with {} --i-know-what-im-doing flags if intentional",
+            image.data.len(),
+            need + 2
         );
     }
 
     let mut client = open_client(opts)?;
     println!("Waiting for the radio's flash-mode broadcast...");
-    let (_kind, boot) = client
+    let (kind, boot) = client
         .wait_for_beacon()
         .context("radio is not in flash mode (power on while holding PTT)")?;
     if let Some(v) = boot {
-        println!("Bootloader version: {v}");
+        println!("Bootloader version: {v} ({kind:?})");
     }
-
-    let version = image
-        .embedded_version
-        .clone()
-        .unwrap_or_else(|| fw_version.to_string());
     let pb = progress_bar(image.data.len(), "flashing");
     client
-        .flash_firmware(&image, &version, 0, &mut |done| {
+        .flash_firmware(&image, &version, key_number, &mut |done| {
             pb.set_position(done as u64)
         })
         .context("flashing firmware")?;
