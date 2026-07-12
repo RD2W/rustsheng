@@ -8,6 +8,10 @@ pub mod v2;
 #[cfg(feature = "flash-v5")]
 pub mod v5;
 
+use crate::firmware::FirmwareImage;
+use crate::protocol::frame;
+use v2::ProtocolV2;
+
 /// Flash write block size.
 pub const FLASH_BLOCK: usize = 0x100;
 /// Hard upper bound for a flashable image.
@@ -91,6 +95,49 @@ pub(crate) fn make_write_payload(
     p
 }
 
+/// Builds the ordered, framed datagram stream for flashing `image`: the version
+/// request followed by one write request per 0x100 block. Pure (no I/O); used by
+/// `--dry-run` and by tests.
+pub fn build_sequence(
+    kind: FlashKind,
+    image: &FirmwareImage,
+    version: &str,
+    key_number: u8,
+    id: u32,
+) -> Result<Vec<Vec<u8>>, FlashError> {
+    if image.data.len() > MAX_FLASH {
+        return Err(FlashError::TooLarge);
+    }
+    let mut proto: Box<dyn FlashProtocol> = match kind {
+        FlashKind::V2 => Box::new(ProtocolV2::new()),
+        FlashKind::V5 => {
+            #[cfg(feature = "flash-v5")]
+            {
+                Box::new(v5::ProtocolV5::new(key_number))
+            }
+            #[cfg(not(feature = "flash-v5"))]
+            {
+                let _ = key_number;
+                return Err(FlashError::V5Unavailable);
+            }
+        }
+    };
+
+    let mut out = Vec::new();
+    out.push(frame(&proto.version_packet(version)));
+    proto.begin();
+
+    let data = &image.data;
+    let chunk_count = data.len().div_ceil(FLASH_BLOCK) as u16;
+    for (i, chunk) in data.chunks(FLASH_BLOCK).enumerate() {
+        let mut block = [0xffu8; FLASH_BLOCK];
+        block[..chunk.len()].copy_from_slice(chunk);
+        let payload = proto.write_packet(i as u16, chunk_count, &block, chunk.len() as u16, id);
+        out.push(frame(&payload));
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -106,5 +153,23 @@ mod tests {
         assert_eq!(&p[12..14], &[0x00, 0x01]); // len 0x100 LE
         assert_eq!(&p[14..16], &[0x00, 0x00]); // padding
         assert_eq!(p[16], 0xff);
+    }
+
+    #[test]
+    fn build_sequence_v2_shapes() {
+        use crate::firmware::FirmwareImage;
+        let mut raw = vec![0u8; 0x800];
+        raw[2] = 0x00;
+        raw[3] = 0x20;
+        raw[6] = 0x00;
+        raw[10] = 0x00;
+        raw[14] = 0x00;
+        let img = FirmwareImage::load(&raw).unwrap();
+        let seq = build_sequence(FlashKind::V2, &img, "2.01.23", 0, WRITE_ID).unwrap();
+        assert_eq!(seq.len(), 1 + 0x800 / FLASH_BLOCK); // 1 version + 8 write packets
+        for dg in &seq {
+            assert_eq!(&dg[0..2], &[0xAB, 0xCD]);
+            assert_eq!(&dg[dg.len() - 2..], &[0xDC, 0xBA]);
+        }
     }
 }
