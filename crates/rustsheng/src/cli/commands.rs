@@ -7,6 +7,7 @@ use anyhow::{Context, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use rustsheng_core::client::Client;
 use rustsheng_core::eeprom::{self, WriteMode};
+use rustsheng_core::firmware::FirmwareImage;
 use rustsheng_core::transport::serial::{self, SerialTransport};
 
 use super::{Command, ConnectionOpts};
@@ -34,8 +35,8 @@ pub fn dispatch(command: Command) -> Result<()> {
         Command::ReadAdc { conn } => read_adc(&conn),
         Command::ReadRssi { conn } => read_rssi(&conn),
         Command::BootloaderInfo { conn } => bootloader_info(&conn),
-        Command::Flash { .. } => {
-            anyhow::bail!("not yet implemented");
+        Command::Flash { conn, input, fw_version, confirm } => {
+            flash(&conn, &input, &fw_version, confirm)
         }
     }
 }
@@ -187,5 +188,45 @@ fn bootloader_info(opts: &ConnectionOpts) -> Result<()> {
         Some(v) => println!("Bootloader version: {v}"),
         None => println!("Flash-mode broadcast received (version not reported)"),
     }
+    Ok(())
+}
+
+fn flash(opts: &ConnectionOpts, input: &Path, fw_version: &str, confirm: u8) -> Result<()> {
+    if confirm < 3 {
+        anyhow::bail!(
+            "flashing firmware can permanently brick your radio. \
+             Re-run with -M and at least three --i-know-what-im-doing flags to proceed."
+        );
+    }
+    let bytes = fs::read(input).with_context(|| format!("reading {}", input.display()))?;
+    let image = FirmwareImage::load(&bytes).context("parsing firmware image")?;
+    if let Some(v) = &image.embedded_version {
+        println!("Firmware file version: {v}");
+    }
+    if image.data.len() < 50_000 && confirm < 5 {
+        anyhow::bail!(
+            "firmware image is unusually small ({} bytes); \
+             re-run with five --i-know-what-im-doing flags if this is intentional",
+            image.data.len()
+        );
+    }
+
+    let mut client = open_client(opts)?;
+    println!("Waiting for the radio's flash-mode broadcast...");
+    let boot = client
+        .wait_flash_broadcast()
+        .context("radio is not in flash mode (power on while holding PTT)")?;
+    if let Some(v) = boot {
+        println!("Bootloader version: {v}");
+    }
+
+    let version = image.embedded_version.clone().unwrap_or_else(|| fw_version.to_string());
+    let pb = progress_bar(image.data.len(), "flashing");
+    client
+        .flash_firmware(&image, &version, &mut |done| pb.set_position(done as u64))
+        .context("flashing firmware")?;
+    pb.finish_and_clear();
+    client.reset().ok();
+    println!("Firmware flashed");
     Ok(())
 }
