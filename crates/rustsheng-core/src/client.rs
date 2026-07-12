@@ -233,6 +233,79 @@ impl<T: Transport> Client<T> {
         self.transport.write_all(&frame(&commands::reset()))?;
         Ok(())
     }
+
+    /// Waits for the radio's `0x18` flash-mode broadcast and returns the
+    /// bootloader version string when the packet carries one.
+    pub fn wait_flash_broadcast(&mut self) -> Result<Option<String>, ClientError> {
+        let reply = self.read_response()?;
+        if reply.len() < 2 || reply[0] != 0x18 || reply[1] != 0x05 {
+            return Err(ClientError::Unexpected("flash broadcast".into()));
+        }
+        if reply.len() >= 36 {
+            let mut end = 0x14;
+            while end < reply.len() && reply[end].is_ascii_graphic() {
+                end += 1;
+            }
+            let v = String::from_utf8_lossy(&reply[0x14..end]).into_owned();
+            return Ok((!v.is_empty()).then_some(v));
+        }
+        Ok(None)
+    }
+
+    /// Sends the firmware version to the bootloader (flash mode only).
+    pub fn send_flash_version(&mut self, version: &str) -> Result<(), ClientError> {
+        let _ = self.transaction(&commands::flash_version(version))?;
+        Ok(())
+    }
+
+    /// Writes one flash block and verifies the `0x1a` confirmation, ignoring
+    /// repeated `0x18` broadcasts (up to 5 reply attempts).
+    pub fn write_flash_block(
+        &mut self,
+        offset: u16,
+        data: &[u8],
+        firmware_size: usize,
+    ) -> Result<(), ClientError> {
+        self.transport.flush_input()?;
+        self.transport
+            .write_all(&frame(&commands::write_flash(offset, data, firmware_size)))?;
+        for _ in 0..5 {
+            let reply = match self.read_response() {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+            if reply.first() == Some(&0x18) {
+                continue;
+            }
+            if reply.len() >= 10
+                && reply[0] == 0x1a
+                && reply[8] == (offset >> 8) as u8
+                && reply[9] == (offset & 0xff) as u8
+            {
+                return Ok(());
+            }
+        }
+        Err(ClientError::NotConfirmed(format!(
+            "flash block at {offset:#06x}"
+        )))
+    }
+
+    /// Flashes an entire image: version handshake, then block-by-block write.
+    /// `progress` receives the cumulative byte count.
+    pub fn flash_firmware(
+        &mut self,
+        image: &crate::firmware::FirmwareImage,
+        version: &str,
+        progress: &mut dyn FnMut(usize),
+    ) -> Result<(), ClientError> {
+        self.send_flash_version(version)?;
+        let size = image.data.len();
+        for (offset, chunk) in image.blocks() {
+            self.write_flash_block(offset, chunk, size)?;
+            progress((offset as usize) + chunk.len());
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -305,5 +378,24 @@ mod tests {
         assert_eq!(r.rssi_raw, 0x008E);
         assert_eq!(r.noise, 0x50);
         assert_eq!(r.glitch, 0x42);
+    }
+
+    #[test]
+    fn write_flash_block_accepts_confirmation() {
+        let payload = vec![
+            0x1a, 0x05, 0x08, 0x00, 0x8a, 0x8d, 0x9f, 0x1d, 0x01, 0x00, 0x00, 0x00,
+        ];
+        let mut client = Client::new(MockTransport::new(vec![radio_reply(&payload)]));
+        assert!(client.write_flash_block(0x0100, &[0u8; 0x100], 0x0800).is_ok());
+    }
+
+    #[test]
+    fn wait_flash_broadcast_reads_version() {
+        let mut payload = vec![0u8; 36];
+        payload[0] = 0x18;
+        payload[1] = 0x05;
+        payload[0x14..0x14 + 7].copy_from_slice(b"2.00.06");
+        let mut client = Client::new(MockTransport::new_preloaded(radio_reply(&payload)));
+        assert_eq!(client.wait_flash_broadcast().unwrap().as_deref(), Some("2.00.06"));
     }
 }

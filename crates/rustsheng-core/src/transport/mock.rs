@@ -25,6 +25,16 @@ impl MockTransport {
         }
     }
 
+    /// Creates a transport with `data` already in the read buffer (for
+    /// testing broadcast reads that do not trigger a write).
+    pub fn new_preloaded(data: Vec<u8>) -> Self {
+        Self {
+            written: Vec::new(),
+            read_buf: VecDeque::from(data),
+            script: VecDeque::new(),
+        }
+    }
+
     /// Returns every buffer passed to [`Transport::write_all`], in order.
     pub fn written(&self) -> &[Vec<u8>] {
         &self.written
