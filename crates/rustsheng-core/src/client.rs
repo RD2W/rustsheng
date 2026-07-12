@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use crate::protocol::frame::ProtocolError;
+use crate::protocol::ProtocolError;
 use crate::protocol::{commands, deframe, frame};
 use crate::transport::{Transport, TransportError};
 
@@ -11,6 +11,8 @@ use crate::transport::{Transport, TransportError};
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_millis(10_000);
 /// Number of hello attempts made by [`Client::connect`].
 pub const HELLO_TRIES: usize = 10;
+/// Maximum accepted response payload length (guards against garbage on the wire).
+const MAX_RESPONSE_PAYLOAD: usize = 512;
 
 /// Errors returned by [`Client`] operations.
 #[derive(Debug, thiserror::Error)]
@@ -85,11 +87,17 @@ impl<T: Transport> Client<T> {
     /// Reads and decodes a single datagram from the transport.
     fn read_response(&mut self) -> Result<Vec<u8>, ClientError> {
         let mut header = [0u8; 4];
-        self.transport.read_exact_timeout(&mut header, self.timeout)?;
+        self.transport
+            .read_exact_timeout(&mut header, self.timeout)?;
         if header[0] != 0xAB || header[1] != 0xCD {
             return Err(ClientError::BadMagic);
         }
         let data_len = u16::from_le_bytes([header[2], header[3]]) as usize;
+        if data_len > MAX_RESPONSE_PAYLOAD {
+            return Err(ClientError::Unexpected(format!(
+                "response payload too large: {data_len}"
+            )));
+        }
         let mut rest = vec![0u8; data_len + 2 + 2];
         self.transport.read_exact_timeout(&mut rest, self.timeout)?;
         let mut full = Vec::with_capacity(4 + rest.len());
@@ -242,8 +250,9 @@ impl<T: Transport> Client<T> {
             return Err(ClientError::Unexpected("flash broadcast".into()));
         }
         if reply.len() >= 36 {
+            let limit = reply.len().min(0x24);
             let mut end = 0x14;
-            while end < reply.len() && reply[end].is_ascii_graphic() {
+            while end < limit && reply[end].is_ascii_graphic() {
                 end += 1;
             }
             let v = String::from_utf8_lossy(&reply[0x14..end]).into_owned();
@@ -386,7 +395,11 @@ mod tests {
             0x1a, 0x05, 0x08, 0x00, 0x8a, 0x8d, 0x9f, 0x1d, 0x01, 0x00, 0x00, 0x00,
         ];
         let mut client = Client::new(MockTransport::new(vec![radio_reply(&payload)]));
-        assert!(client.write_flash_block(0x0100, &[0u8; 0x100], 0x0800).is_ok());
+        assert!(
+            client
+                .write_flash_block(0x0100, &[0u8; 0x100], 0x0800)
+                .is_ok()
+        );
     }
 
     #[test]
@@ -396,6 +409,9 @@ mod tests {
         payload[1] = 0x05;
         payload[0x14..0x14 + 7].copy_from_slice(b"2.00.06");
         let mut client = Client::new(MockTransport::new_preloaded(radio_reply(&payload)));
-        assert_eq!(client.wait_flash_broadcast().unwrap().as_deref(), Some("2.00.06"));
+        assert_eq!(
+            client.wait_flash_broadcast().unwrap().as_deref(),
+            Some("2.00.06")
+        );
     }
 }

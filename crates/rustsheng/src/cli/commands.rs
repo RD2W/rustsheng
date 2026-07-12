@@ -24,20 +24,28 @@ pub fn dispatch(command: Command) -> Result<()> {
     match command {
         Command::ScanPorts => scan_ports(),
         Command::ReadEeprom { conn, output } => read_eeprom(&conn, &output),
-        Command::WriteEeprom { conn, input, mode, confirm } => {
-            write_eeprom(&conn, &input, mode.into(), confirm)
-        }
+        Command::WriteEeprom {
+            conn,
+            input,
+            mode,
+            confirm,
+        } => write_eeprom(&conn, &input, mode.into(), confirm),
         Command::ReadCalibration { conn, output } => read_calibration(&conn, &output),
-        Command::WriteCalibration { conn, input, confirm } => {
-            write_calibration(&conn, &input, confirm)
-        }
+        Command::WriteCalibration {
+            conn,
+            input,
+            confirm,
+        } => write_calibration(&conn, &input, confirm),
         Command::Reset { conn } => reset(&conn),
         Command::ReadAdc { conn } => read_adc(&conn),
         Command::ReadRssi { conn } => read_rssi(&conn),
         Command::BootloaderInfo { conn } => bootloader_info(&conn),
-        Command::Flash { conn, input, fw_version, confirm } => {
-            flash(&conn, &input, &fw_version, confirm)
-        }
+        Command::Flash {
+            conn,
+            input,
+            fw_version,
+            confirm,
+        } => flash(&conn, &input, &fw_version, confirm),
     }
 }
 
@@ -59,7 +67,7 @@ fn progress_bar(total: usize, label: &str) -> ProgressBar {
     let pb = ProgressBar::new(total as u64);
     pb.set_style(
         ProgressStyle::with_template(&format!("{label} {{bar:40}} {{bytes}}/{{total_bytes}}"))
-            .unwrap(),
+            .expect("valid progress template"),
     );
     pb
 }
@@ -94,7 +102,8 @@ fn write_eeprom(opts: &ConnectionOpts, input: &Path, mode: WriteMode, confirm: u
     println!("Connected to firmware: {version}");
 
     let blocks = eeprom::write_blocks(mode);
-    let pb = progress_bar(eeprom::SIZE, "writing");
+    let total: usize = blocks.iter().map(|b| b.len).sum();
+    let pb = progress_bar(total, "writing");
     let mut done = 0;
     for b in blocks {
         client
@@ -134,7 +143,10 @@ fn write_calibration(opts: &ConnectionOpts, input: &Path, confirm: u8) -> Result
     }
     let data = fs::read(input).with_context(|| format!("reading {}", input.display()))?;
     if data.len() != eeprom::CALIB_SIZE {
-        anyhow::bail!("calibration file must be exactly {} bytes", eeprom::CALIB_SIZE);
+        anyhow::bail!(
+            "calibration file must be exactly {} bytes",
+            eeprom::CALIB_SIZE
+        );
     }
     let mut client = open_client(opts)?;
     client.connect().context("connecting to radio")?;
@@ -184,7 +196,10 @@ fn read_rssi(opts: &ConnectionOpts) -> Result<()> {
 fn bootloader_info(opts: &ConnectionOpts) -> Result<()> {
     let mut client = open_client(opts)?;
     println!("Waiting for the radio's flash-mode broadcast...");
-    match client.wait_flash_broadcast().context("waiting for broadcast")? {
+    match client
+        .wait_flash_broadcast()
+        .context("waiting for broadcast")?
+    {
         Some(v) => println!("Bootloader version: {v}"),
         None => println!("Flash-mode broadcast received (version not reported)"),
     }
@@ -220,7 +235,10 @@ fn flash(opts: &ConnectionOpts, input: &Path, fw_version: &str, confirm: u8) -> 
         println!("Bootloader version: {v}");
     }
 
-    let version = image.embedded_version.clone().unwrap_or_else(|| fw_version.to_string());
+    let version = image
+        .embedded_version
+        .clone()
+        .unwrap_or_else(|| fw_version.to_string());
     let pb = progress_bar(image.data.len(), "flashing");
     client
         .flash_firmware(&image, &version, &mut |done| pb.set_position(done as u64))

@@ -55,7 +55,10 @@ impl Transport for SerialTransport {
                 return Err(TransportError::Timeout);
             }
             match self.port.read(&mut buf[filled..]) {
-                Ok(0) => continue,
+                Ok(0) => {
+                    std::thread::sleep(Duration::from_millis(1));
+                    continue;
+                }
                 Ok(n) => filled += n,
                 Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => continue,
                 Err(e) => return Err(TransportError::Io(e.to_string())),

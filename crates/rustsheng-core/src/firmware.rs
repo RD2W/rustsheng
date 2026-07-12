@@ -56,13 +56,15 @@ impl FirmwareImage {
             if data.len() > MAX_FLASH {
                 return Err(FirmwareError::TooLarge);
             }
-            return Ok(Self { data, embedded_version: None });
+            return Ok(Self {
+                data,
+                embedded_version: None,
+            });
         }
 
         // Otherwise it must be a vendor image: CRC-terminated and encrypted.
         let crc_want = crc16_xmodem(&bytes[..bytes.len() - 2]);
-        let crc_got =
-            u16::from_le_bytes([bytes[bytes.len() - 2], bytes[bytes.len() - 1]]);
+        let crc_got = u16::from_le_bytes([bytes[bytes.len() - 2], bytes[bytes.len() - 1]]);
         if crc_got != crc_want {
             return Err(FirmwareError::Invalid);
         }
@@ -85,7 +87,10 @@ impl FirmwareImage {
         if data.len() > MAX_FLASH {
             return Err(FirmwareError::TooLarge);
         }
-        Ok(Self { data, embedded_version })
+        Ok(Self {
+            data,
+            embedded_version,
+        })
     }
 
     /// Splits the image into `(offset, chunk)` pairs of at most [`BLOCK`] bytes.
@@ -123,7 +128,10 @@ mod tests {
 
     #[test]
     fn rejects_tiny_file() {
-        assert_eq!(FirmwareImage::load(&[0u8; 16]), Err(FirmwareError::TooSmall));
+        assert_eq!(
+            FirmwareImage::load(&[0u8; 16]),
+            Err(FirmwareError::TooSmall)
+        );
     }
 
     #[test]

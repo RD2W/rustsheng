@@ -59,7 +59,7 @@ impl Transport for MockTransport {
             return Err(TransportError::Timeout);
         }
         for slot in buf.iter_mut() {
-            *slot = self.read_buf.pop_front().unwrap();
+            *slot = self.read_buf.pop_front().expect("length checked above");
         }
         Ok(buf.len())
     }

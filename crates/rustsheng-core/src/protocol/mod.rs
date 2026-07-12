@@ -1,8 +1,8 @@
 //! UV-K5 wire protocol: CRC, obfuscation, framing, and command builders.
 
 pub mod crc;
-pub mod obfuscation;
 pub mod frame;
+pub mod obfuscation;
 
 pub use crc::crc16_xmodem;
 pub use frame::{ProtocolError, deframe, frame};

@@ -85,6 +85,10 @@ pub fn flash_version(version: &str) -> Vec<u8> {
 /// `0x19` write one flash block (flash mode only). The block offset is
 /// **big-endian**; data is padded with zeros to [`FLASH_BLOCK`].
 pub fn write_flash(offset: u16, data: &[u8], firmware_size: usize) -> Vec<u8> {
+    debug_assert!(
+        data.len() <= FLASH_BLOCK,
+        "flash block data must be <= FLASH_BLOCK"
+    );
     let max_block_addr: u16 = if firmware_size & 0xff != 0 {
         ((firmware_size & 0xff00) + FLASH_BLOCK) as u16
     } else {
@@ -121,7 +125,10 @@ mod tests {
 
     #[test]
     fn hello_matches_reference() {
-        assert_eq!(hello(), vec![0x14, 0x05, 0x04, 0x00, 0x6a, 0x39, 0x57, 0x64]);
+        assert_eq!(
+            hello(),
+            vec![0x14, 0x05, 0x04, 0x00, 0x6a, 0x39, 0x57, 0x64]
+        );
     }
 
     #[test]
