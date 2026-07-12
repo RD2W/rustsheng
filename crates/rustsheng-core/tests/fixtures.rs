@@ -1,4 +1,4 @@
-//! Интеграционные тесты на эталонных `.raw` файлах из репозитория.
+//! Integration tests against the reference `.raw` fixtures shipped in the repo.
 
 use std::path::PathBuf;
 
@@ -20,7 +20,7 @@ fn reference_eeprom_dump_has_expected_size() {
 #[test]
 fn reference_flash_image_loads_as_raw() {
     let bytes = std::fs::read(fixture("k5_flash.raw")).unwrap();
-    let image = FirmwareImage::load(&bytes).expect("k5_flash.raw должен загружаться");
+    let image = FirmwareImage::load(&bytes).expect("k5_flash.raw should load");
     assert!(!image.data.is_empty());
     assert!(image.data.len() <= rustsheng_core::firmware::MAX_FLASH);
     assert!(image.embedded_version.is_none());
