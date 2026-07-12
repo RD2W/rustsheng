@@ -172,6 +172,12 @@ pub enum Command {
         /// Datagram as a hex string (e.g. `abcd0800...dcba`).
         hex: String,
     },
+
+    /// Passively sniff the serial port and print decoded datagrams (Ctrl-C to stop).
+    Sniffer {
+        #[command(flatten)]
+        conn: ConnectionOpts,
+    },
 }
 
 /// Parses an unsigned integer, accepting `0x`/`0X` hex or decimal.

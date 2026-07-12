@@ -64,6 +64,7 @@ pub fn dispatch(command: Command) -> Result<()> {
             output,
         } => pack(&input, &fw_version, output.as_deref()),
         Command::Parse { hex } => parse(&hex),
+        Command::Sniffer { conn } => sniffer(&conn),
     }
 }
 
@@ -376,10 +377,35 @@ fn parse(hex: &str) -> Result<()> {
         payload.len(),
         encode_hex(&payload)
     );
-    if let Some(&cmd) = payload.first() {
-        println!("Command: {cmd:#04x}");
-    }
+    println!("Packet: {}", protocol::describe(&payload));
     Ok(())
+}
+
+/// `sniffer`: passively read the port and print decoded datagrams until Ctrl-C.
+fn sniffer(opts: &ConnectionOpts) -> Result<()> {
+    use rustsheng_core::transport::Transport;
+
+    let mut port = serial::open(&opts.port, opts.speed)
+        .with_context(|| format!("opening serial port {}", opts.port))?;
+    let mut scanner = protocol::FrameScanner::new();
+    let mut buf = [0u8; 256];
+    println!(
+        "Sniffing {} at {} baud (Ctrl-C to stop)...",
+        opts.port, opts.speed
+    );
+    loop {
+        let n = port.read_available(&mut buf).context("reading from port")?;
+        if n == 0 {
+            continue;
+        }
+        scanner.push(&buf[..n]);
+        while let Some(frame) = scanner.next_frame() {
+            match protocol::deframe(&frame) {
+                Ok(payload) => println!("{}", protocol::describe(&payload)),
+                Err(e) => println!("<undecodable datagram: {e}>"),
+            }
+        }
+    }
 }
 
 /// Decodes a hex string (whitespace ignored) into bytes.
