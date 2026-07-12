@@ -32,6 +32,6 @@ fn reference_flash_image_loads_as_raw() {
         .expect("reference firmware image should be present in tests/fw");
     let image = FirmwareImage::load(&bytes).expect("reference firmware should load");
     assert!(!image.data.is_empty());
-    assert!(image.data.len() <= rustsheng_core::firmware::MAX_FLASH);
+    assert!(image.data.len() <= image.cpu.flash_limit());
     assert!(image.embedded_version.is_none());
 }

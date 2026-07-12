@@ -129,7 +129,7 @@ pub enum Command {
         conn: ConnectionOpts,
     },
 
-    /// Flash a firmware image (raw or vendor-encrypted .bin). NOT hardware-validated.
+    /// Flash a firmware image (raw or vendor-encrypted .bin), for V1/V2/V3/K1. NOT hardware-validated.
     #[command(visible_alias = "F")]
     Flash {
         /// Serial port (required for live flashing; not needed for --dry-run).

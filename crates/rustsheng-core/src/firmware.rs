@@ -12,8 +12,6 @@ use crate::protocol::{crc16_xmodem, xor_firmware};
 pub mod cpu;
 use cpu::Cpu;
 
-/// Hard upper bound for a flashable image (the bootloader lives above this).
-pub const MAX_FLASH: usize = 0xf000;
 /// Flash write block size.
 pub const BLOCK: usize = 0x100;
 /// Version string accepted by all known bootloaders.

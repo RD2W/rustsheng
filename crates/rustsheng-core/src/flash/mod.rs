@@ -14,8 +14,6 @@ use v2::ProtocolV2;
 
 /// Flash write block size.
 pub const FLASH_BLOCK: usize = 0x100;
-/// Hard upper bound for a flashable image.
-pub const MAX_FLASH: usize = 0xf000;
 /// Fixed write-request id (K5TOOL randomizes it; we pin it for determinism).
 pub const WRITE_ID: u32 = 0x1d9f8d8a;
 
@@ -34,8 +32,8 @@ pub enum FlashError {
     /// A V5 radio was detected but the crate was built without `flash-v5`.
     #[error("V5 flashing requires the `flash-v5` feature")]
     V5Unavailable,
-    /// Image exceeds MAX_FLASH.
-    #[error("firmware image too large (max {MAX_FLASH:#x})")]
+    /// Image exceeds the maximum flashable size for its CPU.
+    #[error("firmware image too large for CPU")]
     TooLarge,
 }
 
@@ -113,9 +111,6 @@ pub fn build_sequence(
     key_number: u8,
     id: u32,
 ) -> Result<Vec<Vec<u8>>, FlashError> {
-    if image.data.len() > MAX_FLASH {
-        return Err(FlashError::TooLarge);
-    }
     let mut proto: Box<dyn FlashProtocol> = match kind {
         FlashKind::V2 => Box::new(ProtocolV2::new()),
         FlashKind::V5 => {
