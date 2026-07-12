@@ -101,11 +101,11 @@ fn read_eeprom(
     let len = size
         .map(|s| s as usize)
         .unwrap_or(eeprom::SIZE - start.min(eeprom::SIZE));
-    if start + len > eeprom::SIZE {
+    if start + len > eeprom::ADDR_SPACE {
         anyhow::bail!(
-            "range {start:#06x}..{:#06x} exceeds EEPROM size {:#06x}",
+            "range {start:#06x}..{:#06x} exceeds addressable EEPROM {:#06x}",
             start + len,
-            eeprom::SIZE
+            eeprom::ADDR_SPACE
         );
     }
     let mut client = open_client(opts)?;
@@ -179,11 +179,11 @@ fn write_eeprom_at(opts: &ConnectionOpts, data: &[u8], offset: usize, confirm: u
              Re-run with --i-know-what-im-doing to proceed."
         );
     }
-    if offset + data.len() > eeprom::SIZE {
+    if offset + data.len() > eeprom::ADDR_SPACE {
         anyhow::bail!(
-            "range {offset:#06x}..{:#06x} exceeds EEPROM size {:#06x}",
+            "range {offset:#06x}..{:#06x} exceeds addressable EEPROM {:#06x}",
             offset + data.len(),
-            eeprom::SIZE
+            eeprom::ADDR_SPACE
         );
     }
     let mut client = open_client(opts)?;

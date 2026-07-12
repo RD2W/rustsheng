@@ -6,6 +6,9 @@
 
 /// Total EEPROM size.
 pub const SIZE: usize = 0x2000;
+/// Full addressable EEPROM range for `--offset/--size` (some variants expose
+/// up to 0x10000; the stock UV-K5 uses `SIZE`).
+pub const ADDR_SPACE: usize = 0x10000;
 /// End of the region written by [`WriteMode::Most`] (calibration excluded).
 pub const SIZE_WITHOUT_CALIBRATION: usize = 0x1d00;
 /// EEPROM read/write block size.
@@ -520,5 +523,12 @@ mod tests {
         let total: usize = calibration_blocks().iter().map(|b| b.len).sum();
         assert_eq!(total, CALIB_SIZE);
         assert_eq!(calibration_blocks().first().unwrap().offset, CALIB_START);
+    }
+
+    #[test]
+    #[allow(clippy::assertions_on_constants)]
+    fn addr_space_is_64k() {
+        assert_eq!(ADDR_SPACE, 0x10000);
+        assert!(ADDR_SPACE >= SIZE);
     }
 }
