@@ -73,13 +73,18 @@ pub fn deframe(datagram: &[u8]) -> Result<Vec<u8>, ProtocolError> {
         return Err(ProtocolError::BadFooter);
     }
 
-    // payload + 2 CRC bytes
+    // The CRC field, read both before de-obfuscation (raw, on the wire) and
+    // after. The radio treats the CRC as obfuscation rather than integrity: it
+    // sends `0xFFFF` either in the clear (flash-mode beacon) or obfuscated
+    // (EEPROM replies), so accept when *either* reading is `0xFFFF` — matching
+    // the reference tools — or when a genuine CRC matches.
+    let raw_crc = u16::from_le_bytes([datagram[4 + declared], datagram[4 + declared + 1]]);
     let mut body = datagram[4..4 + declared + 2].to_vec();
     xor_payload(&mut body);
     let crc_got = u16::from_le_bytes([body[declared], body[declared + 1]]);
     let payload = body[..declared].to_vec();
     let crc_want = crc16_xmodem(&payload);
-    if crc_got != 0xFFFF && crc_got != crc_want {
+    if raw_crc != 0xFFFF && crc_got != 0xFFFF && crc_got != crc_want {
         return Err(ProtocolError::BadCrc {
             got: crc_got,
             want: crc_want,
@@ -177,6 +182,20 @@ mod tests {
         out.extend_from_slice(&body);
         out.extend_from_slice(&[0xDC, 0xBA]);
         assert_eq!(deframe(&out).unwrap(), payload);
+    }
+
+    #[test]
+    fn accepts_flash_beacon_with_raw_ffff_crc() {
+        // Real flash-mode beacon captured from a radio: the CRC field is a
+        // literal `ff ff` on the wire (not obfuscated).
+        let datagram: &[u8] = &[
+            0xab, 0xcd, 0x24, 0x00, 0x0e, 0x69, 0x34, 0xe6, 0x2f, 0x93, 0x0f, 0x4b, 0x2d, 0x66,
+            0x93, 0x74, 0x41, 0x5a, 0x16, 0x81, 0x56, 0x6c, 0xd7, 0xe6, 0x1c, 0xbf, 0x3d, 0x70,
+            0x0f, 0x05, 0xe3, 0x40, 0x27, 0x09, 0xe9, 0x80, 0x16, 0x6c, 0x14, 0xc6, 0xff, 0xff,
+            0xdc, 0xba,
+        ];
+        let payload = deframe(datagram).expect("beacon should decode");
+        assert_eq!(&payload[..4], &[0x18, 0x05, 0x20, 0x00]);
     }
 
     #[test]
