@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maxim Krutovercev <mkrutovercev@yandex.ru> (RD2W)
+// Derived from k5prog (Jacek Lipkowski, SQ5BPF) and k5prog-win (OneOfEleven).
+
 //! `rustsheng-core`: hardware-independent core for programming Quansheng UV-K5
 //! radios over serial. Contains the wire protocol, high-level operations, and a
 //! [`transport::Transport`] abstraction so the logic can be exercised without

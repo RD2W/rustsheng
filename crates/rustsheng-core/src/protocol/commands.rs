@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maxim Krutovercev <mkrutovercev@yandex.ru> (RD2W)
+// Derived from k5prog (Jacek Lipkowski, SQ5BPF) and k5prog-win (OneOfEleven).
+
 //! Builders for the clear command payloads sent to the radio. Each returns the
 //! bytes that go *inside* a datagram (see [`crate::protocol::frame`]).
 //!
