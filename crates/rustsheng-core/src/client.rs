@@ -38,6 +38,26 @@ pub enum ClientError {
     NotDetected,
 }
 
+/// Battery ADC reading.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AdcInfo {
+    /// Raw ADC value; voltage requires per-radio calibration data.
+    pub raw: u16,
+}
+
+/// RSSI / noise / glitch reading.
+#[derive(Debug, Clone, Copy)]
+pub struct RssiInfo {
+    /// Raw 9-bit RSSI value.
+    pub rssi_raw: u16,
+    /// RSSI converted to dBm (`raw / 2 - 160`).
+    pub dbm: f32,
+    /// 7-bit noise value.
+    pub noise: u8,
+    /// Glitch counter.
+    pub glitch: u8,
+}
+
 /// A connected (or connectable) radio.
 pub struct Client<T: Transport> {
     transport: T,
@@ -175,6 +195,38 @@ impl<T: Transport> Client<T> {
         Ok(())
     }
 
+    /// Reads the battery ADC value (reply `0x2a`).
+    pub fn read_adc(&mut self) -> Result<AdcInfo, ClientError> {
+        let reply = self.transaction(&commands::read_adc())?;
+        if reply.first() == Some(&0x18) {
+            return Err(ClientError::RadioInFlashMode);
+        }
+        if reply.len() < 8 || reply[0] != 0x2a || reply[1] != 0x05 {
+            return Err(ClientError::Unexpected("adc reply".into()));
+        }
+        Ok(AdcInfo {
+            raw: u16::from_le_bytes([reply[4], reply[5]]),
+        })
+    }
+
+    /// Reads RSSI/noise/glitch (reply `0x28`).
+    pub fn read_rssi(&mut self) -> Result<RssiInfo, ClientError> {
+        let reply = self.transaction(&commands::read_rssi())?;
+        if reply.first() == Some(&0x18) {
+            return Err(ClientError::RadioInFlashMode);
+        }
+        if reply.len() < 8 || reply[0] != 0x28 || reply[1] != 0x05 {
+            return Err(ClientError::Unexpected("rssi reply".into()));
+        }
+        let rssi_raw = u16::from_le_bytes([reply[4], reply[5]]) & 0x01FF;
+        Ok(RssiInfo {
+            rssi_raw,
+            dbm: (rssi_raw as f32 / 2.0) - 160.0,
+            noise: reply[6] & 0x7F,
+            glitch: reply[7],
+        })
+    }
+
     /// Reboots the radio (fire-and-forget; no reply expected).
     pub fn reset(&mut self) -> Result<(), ClientError> {
         self.transport.flush_input()?;
@@ -234,5 +286,24 @@ mod tests {
         let good = vec![0x1e, 0x05, 0x00, 0x00, 0x10, 0x00];
         let mut client = Client::new(MockTransport::new(vec![radio_reply(&good)]));
         assert!(client.write_block(0x0010, &[0u8; 0x10]).is_ok());
+    }
+
+    #[test]
+    fn read_adc_decodes_raw() {
+        // 2A 05 04 00 AC 07 00 00 -> 0x07AC
+        let payload = vec![0x2a, 0x05, 0x04, 0x00, 0xac, 0x07, 0x00, 0x00];
+        let mut client = Client::new(MockTransport::new(vec![radio_reply(&payload)]));
+        assert_eq!(client.read_adc().unwrap().raw, 0x07AC);
+    }
+
+    #[test]
+    fn read_rssi_decodes_fields() {
+        // 28 05 04 00 8E 00 50 42
+        let payload = vec![0x28, 0x05, 0x04, 0x00, 0x8e, 0x00, 0x50, 0x42];
+        let mut client = Client::new(MockTransport::new(vec![radio_reply(&payload)]));
+        let r = client.read_rssi().unwrap();
+        assert_eq!(r.rssi_raw, 0x008E);
+        assert_eq!(r.noise, 0x50);
+        assert_eq!(r.glitch, 0x42);
     }
 }
