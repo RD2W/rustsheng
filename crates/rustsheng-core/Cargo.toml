@@ -10,10 +10,13 @@ authors.workspace = true
 name = "rustsheng_core"
 
 [features]
-default = ["serial"]
+default = ["serial", "flash-v5"]
 serial = ["dep:serialport"]
+flash-v5 = ["dep:aes", "dep:cbc"]
 
 [dependencies]
 thiserror.workspace = true
 log.workspace = true
 serialport = { workspace = true, optional = true }
+aes = { workspace = true, optional = true }
+cbc = { workspace = true, optional = true }

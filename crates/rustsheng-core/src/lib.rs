@@ -13,3 +13,4 @@ pub mod eeprom;
 pub mod firmware;
 pub mod protocol;
 pub mod transport;
+pub mod flash;
