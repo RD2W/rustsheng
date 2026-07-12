@@ -26,7 +26,7 @@ jobs:
         run: cargo build -p rustsheng --release --locked
       - name: Strip
         run: strip target/release/rustsheng
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-x86_64
           path: target/release/rustsheng
@@ -44,7 +44,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build with cross
         run: cross build -p rustsheng --target aarch64-unknown-linux-gnu --release --locked
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-aarch64
           path: target/aarch64-unknown-linux-gnu/release/rustsheng
@@ -62,7 +62,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build
         run: cargo build -p rustsheng --target x86_64-pc-windows-gnu --release --locked
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows-x86_64
           path: target/x86_64-pc-windows-gnu/release/rustsheng.exe
@@ -80,7 +80,7 @@ jobs:
         run: cargo build -p rustsheng --target x86_64-apple-darwin --release --locked
       - name: Strip
         run: strip target/x86_64-apple-darwin/release/rustsheng
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macos-x86_64
           path: target/x86_64-apple-darwin/release/rustsheng
@@ -96,7 +96,7 @@ jobs:
         run: cargo build -p rustsheng --release --locked
       - name: Strip
         run: strip target/release/rustsheng
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macos-aarch64
           path: target/release/rustsheng
