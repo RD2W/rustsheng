@@ -110,6 +110,77 @@ impl<T: Transport> Client<T> {
         }
         Err(last)
     }
+
+    /// Reads a single EEPROM block (`len` <= 0x80) at `addr`.
+    pub fn read_eeprom(&mut self, addr: u16, len: u8) -> Result<Vec<u8>, ClientError> {
+        let reply = self.transaction(&commands::read_eeprom(addr, len))?;
+        if reply.first() == Some(&0x18) {
+            return Err(ClientError::RadioInFlashMode);
+        }
+        // reply: 1c 05 .. .. addr_lo addr_hi .. .. <data...>
+        if reply.len() < 8 + len as usize
+            || reply[0] != 0x1c
+            || reply[4] != (addr & 0xff) as u8
+            || reply[5] != (addr >> 8) as u8
+        {
+            return Err(ClientError::Unexpected(format!(
+                "read reply for addr {addr:#06x}"
+            )));
+        }
+        Ok(reply[8..8 + len as usize].to_vec())
+    }
+
+    /// Reads `size` bytes starting at `start` in [`crate::eeprom::BLOCK`] chunks,
+    /// reporting cumulative bytes read via `progress`.
+    pub fn read_region(
+        &mut self,
+        start: usize,
+        size: usize,
+        progress: &mut dyn FnMut(usize),
+    ) -> Result<Vec<u8>, ClientError> {
+        use crate::eeprom::BLOCK;
+        let mut out = Vec::with_capacity(size);
+        let mut done = 0;
+        while done < size {
+            let len = BLOCK.min(size - done);
+            let addr = (start + done) as u16;
+            out.extend_from_slice(&self.read_eeprom(addr, len as u8)?);
+            done += len;
+            progress(done);
+        }
+        Ok(out)
+    }
+
+    /// Reads the entire EEPROM image.
+    pub fn read_eeprom_full(
+        &mut self,
+        progress: &mut dyn FnMut(usize),
+    ) -> Result<Vec<u8>, ClientError> {
+        self.read_region(0, crate::eeprom::SIZE, progress)
+    }
+
+    /// Writes one EEPROM block and verifies the radio's `0x1e` confirmation.
+    pub fn write_block(&mut self, addr: u16, data: &[u8]) -> Result<(), ClientError> {
+        let reply = self.transaction(&commands::write_eeprom(addr, data))?;
+        if reply.first() == Some(&0x18) {
+            return Err(ClientError::RadioInFlashMode);
+        }
+        if reply.len() < 6
+            || reply[0] != 0x1e
+            || reply[4] != (addr & 0xff) as u8
+            || reply[5] != (addr >> 8) as u8
+        {
+            return Err(ClientError::NotConfirmed(format!("write at {addr:#06x}")));
+        }
+        Ok(())
+    }
+
+    /// Reboots the radio (fire-and-forget; no reply expected).
+    pub fn reset(&mut self) -> Result<(), ClientError> {
+        self.transport.flush_input()?;
+        self.transport.write_all(&frame(&commands::reset()))?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -147,5 +218,21 @@ mod tests {
         let payload = vec![0x18u8, 0x05, 0x20, 0x00];
         let mut client = Client::new(MockTransport::new(vec![radio_reply(&payload)]));
         assert!(matches!(client.hello(), Err(ClientError::RadioInFlashMode)));
+    }
+
+    #[test]
+    fn read_eeprom_returns_block_data() {
+        let mut payload = vec![0x1c, 0x05, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00];
+        payload.extend_from_slice(&[0x42; 0x80]);
+        let mut client = Client::new(MockTransport::new(vec![radio_reply(&payload)]));
+        let data = client.read_eeprom(0x0080, 0x80).unwrap();
+        assert_eq!(data, vec![0x42; 0x80]);
+    }
+
+    #[test]
+    fn write_block_requires_confirmation() {
+        let good = vec![0x1e, 0x05, 0x00, 0x00, 0x10, 0x00];
+        let mut client = Client::new(MockTransport::new(vec![radio_reply(&good)]));
+        assert!(client.write_block(0x0010, &[0u8; 0x10]).is_ok());
     }
 }
