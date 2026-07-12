@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Maxim Krutovercev <mkrutovercev@yandex.ru> (RD2W)
-// Derived from k5prog (Jacek Lipkowski, SQ5BPF) and k5prog-win (OneOfEleven).
+// Derived from k5prog (Jacek Lipkowski, SQ5BPF), k5prog-win (OneOfEleven), and K5TOOL (qrp73).
 
 //! Datagram framing: `AB CD len_lo len_hi <payload> crc_lo crc_hi DC BA`.
 //! Only the payload and its CRC are obfuscated; the header, length, and footer
