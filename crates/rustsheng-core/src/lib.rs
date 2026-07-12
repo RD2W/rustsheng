@@ -11,6 +11,6 @@ pub mod client;
 pub use client::{Client, ClientError};
 pub mod eeprom;
 pub mod firmware;
+pub mod flash;
 pub mod protocol;
 pub mod transport;
-pub mod flash;
