@@ -33,7 +33,6 @@ pub struct WriteBlock {
 
 /// The vendor block list (offset, length), copied from `uvk5.h`.
 const ORIGINAL_WRITES: &[(usize, usize)] = &[
-    (0x0eb0, 0x08),
     (0x0e70, 0x60),
     (0x0000, 0x10),
     (0x0f50, 0x10),
