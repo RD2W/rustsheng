@@ -1,6 +1,6 @@
-# Makefile для сборки под разные платформы (Windows, Linux, Mac)
+# Makefile for building on multiple platforms (Windows, Linux, Mac)
 
-# Определение текущей платформы
+# Detect the current platform
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Linux)
     PLATFORM = linux
@@ -15,7 +15,7 @@ ifeq ($(findstring MINGW,$(UNAME_S)),MINGW)
     EXT = .exe
 endif
 
-# Определение целей для разных архитектур
+# Cross-compilation targets per platform
 ifeq ($(PLATFORM),windows)
     TARGETS = x86_64-pc-windows-gnu i686-pc-windows-gnu
 else ifeq ($(PLATFORM),linux)
@@ -24,82 +24,79 @@ else ifeq ($(PLATFORM),mac)
     TARGETS = x86_64-apple-darwin aarch64-apple-darwin
 endif
 
-# Имя бинарника (предполагаем, что определено в Cargo.toml)
-BINARY_NAME := $(shell grep '^name' Cargo.toml | head -n1 | cut -d'=' -f2 | tr -d ' ' | tr -d '"')
+.PHONY: all build build-all build-platform install-targets clean install-deps test run help
 
-.PHONY: all build clean install-deps test run help
-
-# Цель по умолчанию
+# Default target
 all: build
 
-# Сборка для текущей платформы
+# Build the whole workspace for the current platform
 build:
-	cargo build --release
+	cargo build --release --workspace
 
-# Сборка для всех поддерживаемых платформ
+# Build the workspace for every supported target
 build-all: install-targets
 	@for target in $(TARGETS); do \
-		echo "Сборка для $$target"; \
-		cargo build --release --target $$target; \
+		echo "Building for $$target"; \
+		cargo build --release --workspace --target $$target; \
 	done
 
-# Сборка для конкретной платформы (например, make build-platform PLATFORM=windows)
+# Build for a specific platform (e.g. make build-platform PLATFORM=windows)
 build-platform:
 	@if [ -z "$(PLATFORM)" ]; then \
-		echo "Пожалуйста, укажите платформу: make build-platform PLATFORM=windows"; \
+		echo "Please specify a platform: make build-platform PLATFORM=windows"; \
 		exit 1; \
 	fi
 	@if [ "$(PLATFORM)" = "windows" ]; then \
-		cargo build --release --target x86_64-pc-windows-gnu; \
+		cargo build --release --workspace --target x86_64-pc-windows-gnu; \
 	elif [ "$(PLATFORM)" = "linux" ]; then \
-		cargo build --release --target x86_64-unknown-linux-gnu; \
+		cargo build --release --workspace --target x86_64-unknown-linux-gnu; \
 	elif [ "$(PLATFORM)" = "mac" ]; then \
-		cargo build --release --target x86_64-apple-darwin; \
+		cargo build --release --workspace --target x86_64-apple-darwin; \
 	fi
 
-# Установка целей для кросс-компиляции
+# Install cross-compilation targets
 install-targets:
 	@for target in $(TARGETS); do \
-		echo "Установка цели $$target"; \
+		echo "Installing target $$target"; \
 		rustup target add $$target; \
 	done
 
-# Очистка скомпилированных файлов
+# Remove build artifacts
 clean:
 	cargo clean
 
-# Установка зависимостей (rustup и т.д.)
+# Check the toolchain and dependencies
 install-deps:
 	@if ! command -v rustc >/dev/null 2>&1; then \
-		echo "Rust не установлен. Установите его с помощью rustup:"; \
+		echo "Rust is not installed. Install it with rustup:"; \
 		echo "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"; \
 		exit 1; \
 	fi
-	cargo check
+	cargo check --workspace
 
-# Запуск тестов
+# Run the test suite
 test:
-	cargo test
+	cargo test --workspace
 
-# Запуск приложения
+# Run the CLI binary
 run:
-	cargo run
+	cargo run -p rustsheng --
 
-# Показать справку по целям
+# Show available targets
 help:
-	@echo "Доступные цели:"
-	@echo "  all              - Сборка для текущей платформы (по умолчанию)"
-	@echo "  build            - Сборка для текущей платформы"
-	@echo "  build-all        - Сборка для всех поддерживаемых платформ"
-	@echo "  build-platform   - Сборка для конкретной платформы (используйте PLATFORM=...)"
-	@echo "  install-targets  - Установка целей для кросс-компиляции"
-	@echo "  clean            - Очистка скомпилированных файлов"
-	@echo "  install-deps     - Установка зависимостей"
-	@echo "  test             - Запуск тестов"
-	@echo "  run              - Запуск приложения"
-	@echo "  help             - Показать это сообщение"
+	@echo "Available targets:"
+	@echo "  all              - Build for the current platform (default)"
+	@echo "  build            - Build the workspace for the current platform"
+	@echo "  build-all        - Build for all supported targets"
+	@echo "  build-platform   - Build for a specific platform (use PLATFORM=...)"
+	@echo "  install-targets  - Install cross-compilation targets"
+	@echo "  clean            - Remove build artifacts"
+	@echo "  install-deps     - Check the toolchain and dependencies"
+	@echo "  test             - Run the test suite"
+	@echo "  run              - Run the CLI binary"
+	@echo "  help             - Show this message"
 	@echo ""
-	@echo "Примеры:"
+	@echo "Examples:"
 	@echo "  make build-all"
 	@echo "  make build-platform PLATFORM=windows"
 	@echo "  make test"
