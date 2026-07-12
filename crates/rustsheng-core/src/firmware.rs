@@ -28,6 +28,9 @@ pub enum FirmwareError {
     /// Neither a recognizable raw image nor a decryptable vendor image.
     #[error("file is not a valid firmware image")]
     Invalid,
+    /// The version string passed to [`pack`] exceeds 16 bytes.
+    #[error("firmware version string too long (max 16 bytes)")]
+    VersionTooLong,
 }
 
 /// A firmware image ready to flash.
@@ -115,6 +118,38 @@ impl FirmwareImage {
     }
 }
 
+/// Byte offset of the 16-byte embedded version field inside a firmware image.
+const VERSION_OFFSET: usize = 0x2000;
+/// Length of the embedded version field.
+const VERSION_LEN: usize = 16;
+
+/// Packs a raw firmware image into the vendor format: inserts the 16-byte
+/// `version` at [`VERSION_OFFSET`], XOR-obfuscates the whole image, and appends
+/// a little-endian CRC-16. This is the inverse of [`FirmwareImage::load`] on a
+/// vendor image.
+pub fn pack(raw: &[u8], version: &str) -> Result<Vec<u8>, FirmwareError> {
+    if raw.len() < VERSION_OFFSET {
+        return Err(FirmwareError::TooSmall);
+    }
+    if version.len() > VERSION_LEN {
+        return Err(FirmwareError::VersionTooLong);
+    }
+
+    let mut out = Vec::with_capacity(VERSION_LEN + raw.len() + 2);
+    out.extend_from_slice(&raw[..VERSION_OFFSET]);
+    let mut version_field = [0u8; VERSION_LEN];
+    let bytes = version.as_bytes();
+    version_field[..bytes.len()].copy_from_slice(bytes);
+    out.extend_from_slice(&version_field);
+    out.extend_from_slice(&raw[VERSION_OFFSET..]);
+
+    xor_firmware(&mut out);
+    let crc = crc16_xmodem(&out);
+    out.push((crc & 0xff) as u8);
+    out.push((crc >> 8) as u8);
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,5 +205,25 @@ mod tests {
         assert_eq!(blocks[1].0, 0x0100);
         assert_eq!(blocks[8].0, 0x0800);
         assert_eq!(blocks[8].1.len(), 0x50);
+    }
+
+    #[test]
+    fn pack_then_load_round_trips() {
+        let raw = raw_image(0x2000 + 0x40);
+        let packed = pack(&raw, "2.01.23").unwrap();
+        // `packed` is XOR-obfuscated with a trailing CRC; loading must reverse
+        // pack: verify CRC, decrypt, and strip the embedded version.
+        let img = FirmwareImage::load(&packed).unwrap();
+        assert_eq!(img.embedded_version.as_deref(), Some("2.01.23"));
+        assert_eq!(img.data, raw);
+    }
+
+    #[test]
+    fn pack_rejects_overlong_version() {
+        let raw = raw_image(0x2000 + 0x40);
+        assert_eq!(
+            pack(&raw, "this-version-is-way-too-long"),
+            Err(FirmwareError::VersionTooLong)
+        );
     }
 }
