@@ -145,7 +145,7 @@ pub enum Command {
         #[arg(short = 'M', long, default_value = "*.01.23")]
         fw_version: String,
         /// V5 AES key pair number (0..15).
-        #[arg(long, default_value_t = 0)]
+        #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u8).range(0..16))]
         key_number: u8,
         /// Build the packet stream and write it to a file instead of flashing.
         #[arg(long)]

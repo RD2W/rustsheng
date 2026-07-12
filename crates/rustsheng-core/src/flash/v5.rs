@@ -80,6 +80,10 @@ impl AesStream {
 
     /// Encrypts `buf` (length a multiple of 16) in place, chaining CBC state.
     pub(super) fn encrypt(&mut self, buf: &mut [u8]) {
+        debug_assert!(
+            buf.len().is_multiple_of(16),
+            "AES-CBC input must be a multiple of 16"
+        );
         for chunk in buf.chunks_mut(16) {
             let block = GenericArray::from_mut_slice(chunk);
             self.enc.encrypt_block_mut(block);
@@ -94,20 +98,18 @@ pub struct ProtocolV5 {
 }
 
 impl ProtocolV5 {
-    /// Creates a V5 protocol handler using AES key pair `key_number` (0..15).
+    /// Creates a V5 protocol handler using AES key pair `key_number`.
+    ///
+    /// key numbers above 15 are clamped to 15.
     pub fn new(key_number: u8) -> Self {
         Self {
-            key_number,
+            key_number: key_number.min(15),
             stream: None,
         }
     }
 }
 
 impl FlashProtocol for ProtocolV5 {
-    fn beacon_id(&self) -> u16 {
-        0x057a
-    }
-
     fn ack_id(&self) -> u16 {
         0x057c
     }
@@ -137,11 +139,12 @@ impl FlashProtocol for ProtocolV5 {
         len: u16,
         id: u32,
     ) -> Vec<u8> {
+        if self.stream.is_none() {
+            self.begin();
+        }
+        let stream = self.stream.as_mut().expect("stream initialized above");
         let mut cipher = *block;
-        self.stream
-            .as_mut()
-            .expect("begin() must be called before write_packet")
-            .encrypt(&mut cipher);
+        stream.encrypt(&mut cipher);
         make_write_payload(0x7b, chunk_no, chunk_count, &cipher, len, id)
     }
 }
@@ -180,8 +183,19 @@ mod crypto_tests {
     fn key0_reversal() {
         // KEYS[0] = e16e0d29 e0c83418 987f9433 f5ff620e
         // reversed per u32 word -> 290d6ee1 1834c8e0 33947f98 0e62fff5
-        let (key, _iv) = key_iv(0);
-        assert_eq!(&key[..8], &[0x29, 0x0d, 0x6e, 0xe1, 0x18, 0x34, 0xc8, 0xe0]);
+        // KEYS[1] = 14b7a2be 0223e259 b2066d88 86977e36
+        // reversed per u32 word -> bea2b714 59e22302 886d06b2 367e9786
+        let expected_key: [u8; 16] = [
+            0x29, 0x0d, 0x6e, 0xe1, 0x18, 0x34, 0xc8, 0xe0, 0x33, 0x94, 0x7f, 0x98, 0x0e, 0x62,
+            0xff, 0xf5,
+        ];
+        let expected_iv: [u8; 16] = [
+            0xbe, 0xa2, 0xb7, 0x14, 0x59, 0xe2, 0x23, 0x02, 0x88, 0x6d, 0x06, 0xb2, 0x36, 0x7e,
+            0x97, 0x86,
+        ];
+        let (key, iv) = key_iv(0);
+        assert_eq!(key, expected_key);
+        assert_eq!(iv, expected_iv);
     }
 
     #[test]

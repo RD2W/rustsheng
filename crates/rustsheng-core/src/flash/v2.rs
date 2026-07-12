@@ -18,10 +18,6 @@ impl ProtocolV2 {
 }
 
 impl FlashProtocol for ProtocolV2 {
-    fn beacon_id(&self) -> u16 {
-        0x0518
-    }
-
     fn ack_id(&self) -> u16 {
         0x051a
     }

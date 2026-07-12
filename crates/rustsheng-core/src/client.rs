@@ -327,13 +327,8 @@ impl<T: Transport> Client<T> {
         let _ = self.read_response(); // reply is another beacon; ignore
         proto.begin();
 
-        let data = &image.data;
-        let chunk_count = data.len().div_ceil(FLASH_BLOCK) as u16;
-        for (i, chunk) in data.chunks(FLASH_BLOCK).enumerate() {
-            let mut block = [0xffu8; FLASH_BLOCK];
-            block[..chunk.len()].copy_from_slice(chunk);
-            let payload =
-                proto.write_packet(i as u16, chunk_count, &block, chunk.len() as u16, WRITE_ID);
+        for (chunk_no, chunk_count, block, len) in crate::flash::blocks(&image.data) {
+            let payload = proto.write_packet(chunk_no, chunk_count, &block, len, WRITE_ID);
             self.transport.flush_input()?;
             self.transport.write_all(&frame(&payload))?;
 
@@ -343,21 +338,21 @@ impl<T: Transport> Client<T> {
                     Ok(r) => r,
                     Err(_) => continue,
                 };
-                if let Some((chunk_no, result)) = proto.parse_write_ack(&reply) {
-                    if chunk_no == i as u16 && result == 0 {
+                if let Some((ack_chunk, result)) = proto.parse_write_ack(&reply) {
+                    if ack_chunk == chunk_no && result == 0 {
                         confirmed = true;
                         break;
                     }
                     return Err(ClientError::NotConfirmed(format!(
-                        "flash block {i}: chunk {chunk_no} result {result}"
+                        "flash block {chunk_no}: chunk {ack_chunk} result {result}"
                     )));
                 }
                 // otherwise a repeated beacon; keep waiting
             }
             if !confirmed {
-                return Err(ClientError::NotConfirmed(format!("flash block {i}")));
+                return Err(ClientError::NotConfirmed(format!("flash block {chunk_no}")));
             }
-            progress((i * FLASH_BLOCK) + chunk.len());
+            progress((chunk_no as usize * FLASH_BLOCK) + len as usize);
         }
         Ok(())
     }
@@ -458,5 +453,17 @@ mod tests {
         let (kind, ver) = client.wait_for_beacon().unwrap();
         assert_eq!(kind, FlashKind::V2);
         assert_eq!(ver.as_deref(), Some("2.00.06"));
+    }
+
+    #[test]
+    fn wait_for_beacon_detects_v5() {
+        let mut payload = vec![0u8; 36];
+        payload[0] = 0x7a;
+        payload[1] = 0x05;
+        payload[0x14..0x14 + 7].copy_from_slice(b"5.00.05");
+        let mut client = Client::new(MockTransport::new_preloaded(radio_reply(&payload)));
+        let (kind, ver) = client.wait_for_beacon().unwrap();
+        assert_eq!(kind, FlashKind::V5);
+        assert_eq!(ver.as_deref(), Some("5.00.05"));
     }
 }

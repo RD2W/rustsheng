@@ -11,9 +11,6 @@
 /// Session identifier echoed in most commands; constant within a session.
 pub const SESSION_ID: [u8; 4] = [0x6a, 0x39, 0x57, 0x64];
 
-/// Flash block size (256 bytes); flash blocks are always padded to this size.
-pub const FLASH_BLOCK: usize = 0x100;
-
 /// `0x14` handshake ("hello").
 pub fn hello() -> Vec<u8> {
     let mut p = vec![0x14, 0x05, 0x04, 0x00];
@@ -74,55 +71,6 @@ pub fn read_rssi() -> Vec<u8> {
     p
 }
 
-/// `0x30` present the firmware version to the bootloader (flash mode only).
-/// The version occupies a fixed 16-byte, zero-padded field.
-pub fn flash_version(version: &str) -> Vec<u8> {
-    let mut p = vec![0x30, 0x05, 0x10, 0x00];
-    let mut field = [0u8; 16];
-    let bytes = version.as_bytes();
-    let n = bytes.len().min(16);
-    field[..n].copy_from_slice(&bytes[..n]);
-    p.extend_from_slice(&field);
-    p
-}
-
-/// `0x19` write one flash block (flash mode only). The block offset is
-/// **big-endian**; data is padded with zeros to [`FLASH_BLOCK`].
-pub fn write_flash(offset: u16, data: &[u8], firmware_size: usize) -> Vec<u8> {
-    debug_assert!(
-        data.len() <= FLASH_BLOCK,
-        "flash block data must be <= FLASH_BLOCK"
-    );
-    let max_block_addr: u16 = if firmware_size & 0xff != 0 {
-        ((firmware_size & 0xff00) + FLASH_BLOCK) as u16
-    } else {
-        (firmware_size & 0xff00) as u16
-    };
-    let inner = 12 + FLASH_BLOCK; // 0x10c
-    let len = data.len();
-    let mut p = vec![
-        0x19,
-        0x05,
-        (inner & 0xff) as u8,
-        ((inner >> 8) & 0xff) as u8,
-        0x8a,
-        0x8d,
-        0x9f,
-        0x1d,
-        (offset >> 8) as u8,
-        (offset & 0xff) as u8,
-        (max_block_addr >> 8) as u8,
-        0x00,
-        (len & 0xff) as u8,
-        ((len >> 8) & 0xff) as u8,
-        0x00,
-        0x00,
-    ];
-    p.extend_from_slice(data);
-    p.resize(16 + FLASH_BLOCK, 0); // zero-pad data to a full block
-    p
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,18 +95,5 @@ mod tests {
         let p = write_eeprom(0x0010, &data);
         assert_eq!(&p[0..8], &[0x1d, 0x05, 0x18, 0x00, 0x10, 0x00, 0x10, 0x01]);
         assert_eq!(p.len(), 8 + 4 + 0x10);
-    }
-
-    #[test]
-    fn write_flash_pads_to_full_block_and_is_big_endian() {
-        let p = write_flash(0x0100, &[0x11, 0x22], 0x0800);
-        assert_eq!(p.len(), 16 + FLASH_BLOCK);
-        assert_eq!(&p[0..4], &[0x19, 0x05, 0x0c, 0x01]);
-        assert_eq!(&p[4..8], &[0x8a, 0x8d, 0x9f, 0x1d]);
-        assert_eq!(&p[8..10], &[0x01, 0x00]); // offset 0x0100 big-endian
-        assert_eq!(&p[12..14], &[0x02, 0x00]); // len = 2, little-endian
-        assert_eq!(p[16], 0x11);
-        assert_eq!(p[17], 0x22);
-        assert_eq!(p[18], 0x00); // padding
     }
 }

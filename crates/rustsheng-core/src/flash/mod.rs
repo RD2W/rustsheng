@@ -41,8 +41,6 @@ pub enum FlashError {
 
 /// A bootloader flash protocol (V2 or V5).
 pub trait FlashProtocol {
-    /// Beacon datagram id that selects this protocol.
-    fn beacon_id(&self) -> u16;
     /// Write-ack datagram id.
     fn ack_id(&self) -> u16;
     /// Clear payload of the version request.
@@ -60,8 +58,7 @@ pub trait FlashProtocol {
     ) -> Vec<u8>;
     /// Parses a write ack into `(chunk_no, result)`, or `None` if not an ack.
     fn parse_write_ack(&self, payload: &[u8]) -> Option<(u16, u8)> {
-        let cmd = (self.ack_id() & 0xff) as u8;
-        if payload.len() >= 11 && payload[0] == cmd && payload[1] == 0x05 {
+        if payload.len() >= 11 && u16::from_le_bytes([payload[0], payload[1]]) == self.ack_id() {
             Some((u16::from_le_bytes([payload[8], payload[9]]), payload[10]))
         } else {
             None
@@ -93,6 +90,17 @@ pub(crate) fn make_write_payload(
     p.push(0x00); // padding
     p.extend_from_slice(block);
     p
+}
+
+/// Yields `(chunk_no, chunk_count, padded_block, len)` for each FLASH_BLOCK-sized
+/// page of `data` (last page 0xff-padded).
+pub(crate) fn blocks(data: &[u8]) -> impl Iterator<Item = (u16, u16, [u8; FLASH_BLOCK], u16)> + '_ {
+    let chunk_count = data.len().div_ceil(FLASH_BLOCK) as u16;
+    data.chunks(FLASH_BLOCK).enumerate().map(move |(i, chunk)| {
+        let mut block = [0xffu8; FLASH_BLOCK];
+        block[..chunk.len()].copy_from_slice(chunk);
+        (i as u16, chunk_count, block, chunk.len() as u16)
+    })
 }
 
 /// Builds the ordered, framed datagram stream for flashing `image`: the version
@@ -127,13 +135,14 @@ pub fn build_sequence(
     out.push(frame(&proto.version_packet(version)));
     proto.begin();
 
-    let data = &image.data;
-    let chunk_count = data.len().div_ceil(FLASH_BLOCK) as u16;
-    for (i, chunk) in data.chunks(FLASH_BLOCK).enumerate() {
-        let mut block = [0xffu8; FLASH_BLOCK];
-        block[..chunk.len()].copy_from_slice(chunk);
-        let payload = proto.write_packet(i as u16, chunk_count, &block, chunk.len() as u16, id);
-        out.push(frame(&payload));
+    for (chunk_no, chunk_count, block, len) in blocks(&image.data) {
+        out.push(frame(&proto.write_packet(
+            chunk_no,
+            chunk_count,
+            &block,
+            len,
+            id,
+        )));
     }
     Ok(out)
 }
@@ -167,6 +176,25 @@ mod tests {
         let img = FirmwareImage::load(&raw).unwrap();
         let seq = build_sequence(FlashKind::V2, &img, "2.01.23", 0, WRITE_ID).unwrap();
         assert_eq!(seq.len(), 1 + 0x800 / FLASH_BLOCK); // 1 version + 8 write packets
+        for dg in &seq {
+            assert_eq!(&dg[0..2], &[0xAB, 0xCD]);
+            assert_eq!(&dg[dg.len() - 2..], &[0xDC, 0xBA]);
+        }
+    }
+
+    #[cfg(feature = "flash-v5")]
+    #[test]
+    fn build_sequence_v5_shapes() {
+        use crate::firmware::FirmwareImage;
+        let mut raw = vec![0u8; 0x800];
+        raw[2] = 0x00;
+        raw[3] = 0x20;
+        raw[6] = 0x00;
+        raw[10] = 0x00;
+        raw[14] = 0x00;
+        let img = FirmwareImage::load(&raw).unwrap();
+        let seq = build_sequence(FlashKind::V5, &img, "5.00.05", 0, WRITE_ID).unwrap();
+        assert_eq!(seq.len(), 1 + 0x800 / FLASH_BLOCK);
         for dg in &seq {
             assert_eq!(&dg[0..2], &[0xAB, 0xCD]);
             assert_eq!(&dg[dg.len() - 2..], &[0xDC, 0xBA]);
