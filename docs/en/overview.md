@@ -50,6 +50,7 @@ third:
 
 ## Supported hardware
 
-Targets the original UV-K5 (V1, processor DP32G030). Newer PCB revisions (V2/V3
-with PY32 processors) are out of scope for validation but may work through the
-beacon-selected flash protocol.
+Supports all known radio revisions — V1 (DP32G030), V2 (PY32F030), V3 and K1
+(PY32F071) — each with an appropriate flash-size limit. CPU detection is automatic
+from the firmware image. Firmware flashing (V2 and V5/AES) is cross-validated at
+the packet level but NOT tested by flashing a real radio — treat it as experimental.

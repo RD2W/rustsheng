@@ -71,7 +71,9 @@ Read the battery ADC, or RSSI/noise/glitch. Firmware-dependent (may time out on 
 Waits for the flash-mode beacon and prints the bootloader version and detected protocol (V2/V5). Requires the radio in flash mode.
 
 ### `flash` (alias `F`) — **dangerous, not hardware-validated**
-Flashes a firmware image (raw or vendor-encrypted `.bin`, auto-detected). The bootloader protocol (V2 or V5) is chosen from the beacon.
+Flashes a firmware image (raw or vendor-encrypted `.bin`, auto-detected). Accepts
+firmware images for V1, V2, V3 and K1 radios (including custom builds). The
+bootloader protocol (V2 or V5) is chosen from the beacon.
 
 | Option | Description |
 |--------|-------------|

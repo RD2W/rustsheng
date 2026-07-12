@@ -90,6 +90,10 @@ Write modes:
 little-endian CRC. `rustsheng pack` produces output **byte-identical** to
 `K5TOOL -pack`. Flash size limit: `0xf000` (the bootloader lives above it).
 
+Firmware images larger than the classic V1 limit (0xf000) are automatically
+allowed up to 0x14000 to support V2/V3/K1 and custom firmware. Loading enforces
+the two-tier limit; the flash path adds a CPU-level cap.
+
 ## Firmware flashing
 
 Flashing is beacon-driven. The bootloader broadcasts a beacon; its id selects the
