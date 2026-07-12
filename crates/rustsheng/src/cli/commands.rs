@@ -30,8 +30,11 @@ pub fn dispatch(command: Command) -> Result<()> {
         Command::WriteCalibration { conn, input, confirm } => {
             write_calibration(&conn, &input, confirm)
         }
-        other => {
-            let _ = other;
+        Command::Reset { conn } => reset(&conn),
+        Command::ReadAdc { conn } => read_adc(&conn),
+        Command::ReadRssi { conn } => read_rssi(&conn),
+        Command::BootloaderInfo { conn } => bootloader_info(&conn),
+        Command::Flash { .. } => {
             anyhow::bail!("not yet implemented");
         }
     }
@@ -147,5 +150,42 @@ fn write_calibration(opts: &ConnectionOpts, input: &Path, confirm: u8) -> Result
     pb.finish_and_clear();
     client.reset().ok();
     println!("Calibration written");
+    Ok(())
+}
+
+fn reset(opts: &ConnectionOpts) -> Result<()> {
+    let mut client = open_client(opts)?;
+    client.connect().context("connecting to radio")?;
+    client.reset().context("resetting radio")?;
+    println!("Reset command sent");
+    Ok(())
+}
+
+fn read_adc(opts: &ConnectionOpts) -> Result<()> {
+    let mut client = open_client(opts)?;
+    client.connect().context("connecting to radio")?;
+    let adc = client.read_adc().context("reading ADC")?;
+    println!("Battery ADC: {} (0x{:04X})", adc.raw, adc.raw);
+    Ok(())
+}
+
+fn read_rssi(opts: &ConnectionOpts) -> Result<()> {
+    let mut client = open_client(opts)?;
+    client.connect().context("connecting to radio")?;
+    let r = client.read_rssi().context("reading RSSI")?;
+    println!(
+        "RSSI {} ({:.1} dBm), Noise {}, Glitch {}",
+        r.rssi_raw, r.dbm, r.noise, r.glitch
+    );
+    Ok(())
+}
+
+fn bootloader_info(opts: &ConnectionOpts) -> Result<()> {
+    let mut client = open_client(opts)?;
+    println!("Waiting for the radio's flash-mode broadcast...");
+    match client.wait_flash_broadcast().context("waiting for broadcast")? {
+        Some(v) => println!("Bootloader version: {v}"),
+        None => println!("Flash-mode broadcast received (version not reported)"),
+    }
     Ok(())
 }
