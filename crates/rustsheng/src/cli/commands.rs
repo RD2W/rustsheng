@@ -284,10 +284,8 @@ fn read_rssi(opts: &ConnectionOpts) -> Result<()> {
 fn bootloader_info(opts: &ConnectionOpts) -> Result<()> {
     let mut client = open_client(opts)?;
     println!("Waiting for the radio's flash-mode broadcast...");
-    match client
-        .wait_flash_broadcast()
-        .context("waiting for broadcast")?
-    {
+    let (_kind, version) = client.wait_for_beacon().context("waiting for broadcast")?;
+    match version {
         Some(v) => println!("Bootloader version: {v}"),
         None => println!("Flash-mode broadcast received (version not reported)"),
     }
@@ -316,8 +314,8 @@ fn flash(opts: &ConnectionOpts, input: &Path, fw_version: &str, confirm: u8) -> 
 
     let mut client = open_client(opts)?;
     println!("Waiting for the radio's flash-mode broadcast...");
-    let boot = client
-        .wait_flash_broadcast()
+    let (_kind, boot) = client
+        .wait_for_beacon()
         .context("radio is not in flash mode (power on while holding PTT)")?;
     if let Some(v) = boot {
         println!("Bootloader version: {v}");
@@ -329,7 +327,9 @@ fn flash(opts: &ConnectionOpts, input: &Path, fw_version: &str, confirm: u8) -> 
         .unwrap_or_else(|| fw_version.to_string());
     let pb = progress_bar(image.data.len(), "flashing");
     client
-        .flash_firmware(&image, &version, &mut |done| pb.set_position(done as u64))
+        .flash_firmware(&image, &version, 0, &mut |done| {
+            pb.set_position(done as u64)
+        })
         .context("flashing firmware")?;
     pb.finish_and_clear();
     client.reset().ok();

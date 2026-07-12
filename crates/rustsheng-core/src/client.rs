@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use log::{debug, info, trace};
 
+use crate::flash::{FLASH_BLOCK, FlashKind, FlashProtocol, WRITE_ID, v2::ProtocolV2};
 use crate::protocol::ProtocolError;
 use crate::protocol::{commands, deframe, frame};
 use crate::transport::{Transport, TransportError};
@@ -44,6 +45,9 @@ pub enum ClientError {
     /// The radio did not answer the handshake.
     #[error("radio not detected")]
     NotDetected,
+    /// Flash-layer error.
+    #[error(transparent)]
+    Flash(#[from] crate::flash::FlashError),
 }
 
 /// Battery ADC reading.
@@ -260,86 +264,100 @@ impl<T: Transport> Client<T> {
         Ok(())
     }
 
-    /// Waits for the radio's `0x18` flash-mode broadcast and returns the
-    /// bootloader version string when the packet carries one.
-    pub fn wait_flash_broadcast(&mut self) -> Result<Option<String>, ClientError> {
-        debug!("wait_flash_broadcast: waiting for the 0x18 flash-mode broadcast");
+    /// Waits for the radio's flash-mode beacon and returns the detected protocol
+    /// kind and the bootloader version (when the packet carries one).
+    pub fn wait_for_beacon(&mut self) -> Result<(FlashKind, Option<String>), ClientError> {
         let reply = self.read_response()?;
-        if reply.len() < 2 || reply[0] != 0x18 || reply[1] != 0x05 {
-            return Err(ClientError::Unexpected("flash broadcast".into()));
-        }
-        if reply.len() >= 36 {
+        let id = if reply.len() >= 2 {
+            u16::from_le_bytes([reply[0], reply[1]])
+        } else {
+            0
+        };
+        let kind = match id {
+            0x0518 => FlashKind::V2,
+            0x057a => FlashKind::V5,
+            _ => {
+                return Err(ClientError::Unexpected(format!(
+                    "flash beacon id {id:#06x}"
+                )));
+            }
+        };
+        let version = if reply.len() >= 36 {
             let limit = reply.len().min(0x24);
             let mut end = 0x14;
             while end < limit && reply[end].is_ascii_graphic() {
                 end += 1;
             }
             let v = String::from_utf8_lossy(&reply[0x14..end]).into_owned();
-            return Ok((!v.is_empty()).then_some(v));
-        }
-        Ok(None)
+            (!v.is_empty()).then_some(v)
+        } else {
+            None
+        };
+        Ok((kind, version))
     }
 
-    /// Sends the firmware version to the bootloader (flash mode only).
-    pub fn send_flash_version(&mut self, version: &str) -> Result<(), ClientError> {
-        debug!("send_flash_version: {version}");
-        let _ = self.transaction(&commands::flash_version(version))?;
-        Ok(())
-    }
-
-    /// Writes one flash block and verifies the `0x1a` confirmation, ignoring
-    /// repeated `0x18` broadcasts (up to 5 reply attempts).
-    pub fn write_flash_block(
-        &mut self,
-        offset: u16,
-        data: &[u8],
-        firmware_size: usize,
-    ) -> Result<(), ClientError> {
-        debug!(
-            "write_flash_block: offset={offset:#06x} len={:#04x}",
-            data.len()
-        );
-        self.transport.flush_input()?;
-        self.transport
-            .write_all(&frame(&commands::write_flash(offset, data, firmware_size)))?;
-        for _ in 0..5 {
-            let reply = match self.read_response() {
-                Ok(r) => r,
-                Err(_) => continue,
-            };
-            if reply.first() == Some(&0x18) {
-                continue;
-            }
-            if reply.len() >= 10
-                && reply[0] == 0x1a
-                && reply[8] == (offset >> 8) as u8
-                && reply[9] == (offset & 0xff) as u8
-            {
-                return Ok(());
-            }
-        }
-        Err(ClientError::NotConfirmed(format!(
-            "flash block at {offset:#06x}"
-        )))
-    }
-
-    /// Flashes an entire image: version handshake, then block-by-block write.
-    /// `progress` receives the cumulative byte count.
+    /// Flashes `image`: detects the protocol from the beacon, sends the version
+    /// request, then writes each 0x100 block and verifies the ack.
     pub fn flash_firmware(
         &mut self,
         image: &crate::firmware::FirmwareImage,
         version: &str,
+        key_number: u8,
         progress: &mut dyn FnMut(usize),
     ) -> Result<(), ClientError> {
-        self.send_flash_version(version)?;
-        let size = image.data.len();
-        info!(
-            "flash_firmware: writing {size} bytes in {} blocks",
-            image.blocks().len()
-        );
-        for (offset, chunk) in image.blocks() {
-            self.write_flash_block(offset, chunk, size)?;
-            progress((offset as usize) + chunk.len());
+        let (kind, _boot) = self.wait_for_beacon()?;
+        let mut proto: Box<dyn FlashProtocol> = match kind {
+            FlashKind::V2 => Box::new(ProtocolV2::new()),
+            FlashKind::V5 => {
+                #[cfg(feature = "flash-v5")]
+                {
+                    Box::new(crate::flash::v5::ProtocolV5::new(key_number))
+                }
+                #[cfg(not(feature = "flash-v5"))]
+                {
+                    let _ = key_number;
+                    return Err(crate::flash::FlashError::V5Unavailable.into());
+                }
+            }
+        };
+
+        self.transport.flush_input()?;
+        self.transport
+            .write_all(&frame(&proto.version_packet(version)))?;
+        let _ = self.read_response(); // reply is another beacon; ignore
+        proto.begin();
+
+        let data = &image.data;
+        let chunk_count = data.len().div_ceil(FLASH_BLOCK) as u16;
+        for (i, chunk) in data.chunks(FLASH_BLOCK).enumerate() {
+            let mut block = [0xffu8; FLASH_BLOCK];
+            block[..chunk.len()].copy_from_slice(chunk);
+            let payload =
+                proto.write_packet(i as u16, chunk_count, &block, chunk.len() as u16, WRITE_ID);
+            self.transport.flush_input()?;
+            self.transport.write_all(&frame(&payload))?;
+
+            let mut confirmed = false;
+            for _ in 0..5 {
+                let reply = match self.read_response() {
+                    Ok(r) => r,
+                    Err(_) => continue,
+                };
+                if let Some((chunk_no, result)) = proto.parse_write_ack(&reply) {
+                    if chunk_no == i as u16 && result == 0 {
+                        confirmed = true;
+                        break;
+                    }
+                    return Err(ClientError::NotConfirmed(format!(
+                        "flash block {i}: chunk {chunk_no} result {result}"
+                    )));
+                }
+                // otherwise a repeated beacon; keep waiting
+            }
+            if !confirmed {
+                return Err(ClientError::NotConfirmed(format!("flash block {i}")));
+            }
+            progress((i * FLASH_BLOCK) + chunk.len());
         }
         Ok(())
     }
@@ -431,28 +449,14 @@ mod tests {
     }
 
     #[test]
-    fn write_flash_block_accepts_confirmation() {
-        let payload = vec![
-            0x1a, 0x05, 0x08, 0x00, 0x8a, 0x8d, 0x9f, 0x1d, 0x01, 0x00, 0x00, 0x00,
-        ];
-        let mut client = Client::new(MockTransport::new(vec![radio_reply(&payload)]));
-        assert!(
-            client
-                .write_flash_block(0x0100, &[0u8; 0x100], 0x0800)
-                .is_ok()
-        );
-    }
-
-    #[test]
-    fn wait_flash_broadcast_reads_version() {
+    fn wait_for_beacon_detects_v2() {
         let mut payload = vec![0u8; 36];
         payload[0] = 0x18;
         payload[1] = 0x05;
         payload[0x14..0x14 + 7].copy_from_slice(b"2.00.06");
         let mut client = Client::new(MockTransport::new_preloaded(radio_reply(&payload)));
-        assert_eq!(
-            client.wait_flash_broadcast().unwrap().as_deref(),
-            Some("2.00.06")
-        );
+        let (kind, ver) = client.wait_for_beacon().unwrap();
+        assert_eq!(kind, FlashKind::V2);
+        assert_eq!(ver.as_deref(), Some("2.00.06"));
     }
 }
