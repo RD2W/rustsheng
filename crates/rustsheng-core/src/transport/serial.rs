@@ -76,4 +76,12 @@ impl Transport for SerialTransport {
             .clear(serialport::ClearBuffer::Input)
             .map_err(|e| TransportError::Io(e.to_string()))
     }
+
+    fn read_available(&mut self, buf: &mut [u8]) -> Result<usize, TransportError> {
+        match self.port.read(buf) {
+            Ok(n) => Ok(n),
+            Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => Ok(0),
+            Err(e) => Err(TransportError::Io(e.to_string())),
+        }
+    }
 }

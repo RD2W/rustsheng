@@ -72,6 +72,14 @@ impl Transport for MockTransport {
         self.read_buf.clear();
         Ok(())
     }
+
+    fn read_available(&mut self, buf: &mut [u8]) -> Result<usize, TransportError> {
+        let n = buf.len().min(self.read_buf.len());
+        for slot in buf.iter_mut().take(n) {
+            *slot = self.read_buf.pop_front().expect("length checked above");
+        }
+        Ok(n)
+    }
 }
 
 #[cfg(test)]

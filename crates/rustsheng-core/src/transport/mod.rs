@@ -44,4 +44,9 @@ pub trait Transport {
 
     /// Discards any buffered input.
     fn flush_input(&mut self) -> Result<(), TransportError>;
+
+    /// Reads whatever bytes are currently available into `buf`, returning the
+    /// count (0 if none arrived within the transport's poll interval). Used by
+    /// passive readers such as the sniffer.
+    fn read_available(&mut self, buf: &mut [u8]) -> Result<usize, TransportError>;
 }

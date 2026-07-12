@@ -88,6 +88,70 @@ pub fn deframe(datagram: &[u8]) -> Result<Vec<u8>, ProtocolError> {
     Ok(payload)
 }
 
+/// Largest datagram payload the scanner will accept (guards against garbage on
+/// the wire declaring an absurd length).
+const MAX_SCAN_PAYLOAD: usize = 512;
+
+/// Extracts complete obfuscated datagrams from a byte stream, resynchronising on
+/// the `AB CD` start marker. Feed bytes with [`push`](Self::push) and pull each
+/// framed datagram with [`next_frame`](Self::next_frame). Used by the sniffer.
+#[derive(Debug, Default)]
+pub struct FrameScanner {
+    buf: Vec<u8>,
+}
+
+impl FrameScanner {
+    /// Creates an empty scanner.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Appends received bytes to the internal buffer.
+    pub fn push(&mut self, data: &[u8]) {
+        self.buf.extend_from_slice(data);
+    }
+
+    /// Returns the next complete datagram (`AB CD .. DC BA`), or `None` if more
+    /// bytes are needed. Leading garbage and malformed frames are discarded.
+    pub fn next_frame(&mut self) -> Option<Vec<u8>> {
+        loop {
+            // Need at least the 8-byte framing overhead to decide anything.
+            if self.buf.len() < 8 {
+                return None;
+            }
+            // Resynchronise to the AB CD start marker.
+            if self.buf[0] != 0xAB || self.buf[1] != 0xCD {
+                match self.buf.iter().skip(1).position(|&b| b == 0xAB) {
+                    Some(pos) => {
+                        self.buf.drain(..pos + 1);
+                        continue;
+                    }
+                    None => {
+                        self.buf.clear();
+                        return None;
+                    }
+                }
+            }
+            let declared = u16::from_le_bytes([self.buf[2], self.buf[3]]) as usize;
+            if declared > MAX_SCAN_PAYLOAD {
+                // Implausible length: drop the start byte and resynchronise.
+                self.buf.drain(..1);
+                continue;
+            }
+            let total = 4 + declared + 2 + 2;
+            if self.buf.len() < total {
+                return None;
+            }
+            if self.buf[total - 2] != 0xDC || self.buf[total - 1] != 0xBA {
+                // Bad footer: not a real frame here; drop one byte and retry.
+                self.buf.drain(..1);
+                continue;
+            }
+            return Some(self.buf.drain(..total).collect());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -131,5 +195,31 @@ mod tests {
             deframe(&datagram),
             Err(ProtocolError::BadCrc { .. })
         ));
+    }
+
+    #[test]
+    fn scanner_extracts_frames_and_resyncs() {
+        let a = frame(&[0x14, 0x05, 0x04, 0x00]);
+        let b = frame(&[0x1b, 0x05, 0x08, 0x00]);
+        let mut scanner = FrameScanner::new();
+        // Leading garbage before the first frame, then the two frames back to back.
+        scanner.push(&[0x00, 0xff, 0x12]);
+        scanner.push(&a);
+        scanner.push(&b);
+        let f1 = scanner.next_frame().expect("first frame");
+        let f2 = scanner.next_frame().expect("second frame");
+        assert_eq!(deframe(&f1).unwrap(), vec![0x14, 0x05, 0x04, 0x00]);
+        assert_eq!(deframe(&f2).unwrap(), vec![0x1b, 0x05, 0x08, 0x00]);
+        assert!(scanner.next_frame().is_none());
+    }
+
+    #[test]
+    fn scanner_waits_for_complete_frame() {
+        let datagram = frame(&[0x29, 0x05, 0x00, 0x00]);
+        let mut scanner = FrameScanner::new();
+        scanner.push(&datagram[..datagram.len() - 1]); // one byte short
+        assert!(scanner.next_frame().is_none());
+        scanner.push(&datagram[datagram.len() - 1..]); // final byte
+        assert!(scanner.next_frame().is_some());
     }
 }

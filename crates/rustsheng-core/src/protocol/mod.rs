@@ -7,10 +7,12 @@
 pub mod crc;
 pub mod frame;
 pub mod obfuscation;
+pub mod packet;
 
 pub use crc::crc16_xmodem;
-pub use frame::{ProtocolError, deframe, frame};
+pub use frame::{FrameScanner, ProtocolError, deframe, frame};
 pub use obfuscation::{FIRMWARE_XOR, PAYLOAD_XOR, xor_firmware, xor_payload};
+pub use packet::describe;
 
 pub mod commands;
 
