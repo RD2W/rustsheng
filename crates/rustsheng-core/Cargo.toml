@@ -1,0 +1,18 @@
+[package]
+name = "rustsheng-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "rustsheng_core"
+
+[features]
+default = ["serial"]
+serial = ["dep:serialport"]
+
+[dependencies]
+thiserror.workspace = true
+log.workspace = true
+serialport = { workspace = true, optional = true }

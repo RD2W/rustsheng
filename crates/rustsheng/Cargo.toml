@@ -1,0 +1,18 @@
+[package]
+name = "rustsheng"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "rustsheng"
+path = "src/main.rs"
+
+[dependencies]
+rustsheng-core = { path = "../rustsheng-core" }
+clap.workspace = true
+anyhow.workspace = true
+log.workspace = true
+env_logger.workspace = true
+indicatif.workspace = true

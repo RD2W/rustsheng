@@ -1,0 +1,11 @@
+/target
+
+# AI agent working files (kept out of the program's git history)
+/AGENTS.md
+/CLAUDE.md
+/GEMINI.md
+/.opencode/
+/.cursor/
+/.cursorrules
+/.github/copilot-instructions.md
+/docs/superpowers/
