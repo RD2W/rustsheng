@@ -1,5 +1,8 @@
 /target
 
+# IDE
+/.idea/
+
 # AI agent working files (kept out of the program's git history)
 /AGENTS.md
 /CLAUDE.md
