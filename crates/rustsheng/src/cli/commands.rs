@@ -52,7 +52,8 @@ pub fn dispatch(command: Command) -> Result<()> {
         Command::ReadRssi { conn } => read_rssi(&conn),
         Command::BootloaderInfo { conn } => bootloader_info(&conn),
         Command::Flash {
-            conn,
+            port,
+            speed,
             input,
             fw_version,
             key_number,
@@ -61,7 +62,8 @@ pub fn dispatch(command: Command) -> Result<()> {
             output,
             confirm,
         } => flash(
-            &conn,
+            port.as_deref(),
+            speed,
             &input,
             &fw_version,
             key_number,
@@ -307,7 +309,8 @@ fn bootloader_info(opts: &ConnectionOpts) -> Result<()> {
 
 #[allow(clippy::too_many_arguments)]
 fn flash(
-    opts: &ConnectionOpts,
+    port: Option<&str>,
+    speed: u32,
     input: &Path,
     fw_version: &str,
     key_number: u8,
@@ -372,7 +375,12 @@ fn flash(
         );
     }
 
-    let mut client = open_client(opts)?;
+    let port = port.context("live flashing requires --port")?;
+    let conn = ConnectionOpts {
+        port: port.to_string(),
+        speed,
+    };
+    let mut client = open_client(&conn)?;
     println!("Waiting for the radio's flash-mode broadcast...");
     let (kind, boot) = client
         .wait_for_beacon()

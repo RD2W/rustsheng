@@ -132,8 +132,12 @@ pub enum Command {
     /// Flash a firmware image (raw or vendor-encrypted .bin). NOT hardware-validated.
     #[command(visible_alias = "F")]
     Flash {
-        #[command(flatten)]
-        conn: ConnectionOpts,
+        /// Serial port (required for live flashing; not needed for --dry-run).
+        #[arg(short, long)]
+        port: Option<String>,
+        /// Serial speed in baud.
+        #[arg(short, long, default_value_t = 38400)]
+        speed: u32,
         /// Firmware file.
         #[arg(short, long)]
         input: PathBuf,
