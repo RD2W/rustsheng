@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Version tag to release (e.g. v0.1.0-beta). Defaults to the ref the run started from."
+        required: false
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
@@ -113,9 +119,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Extract version from tag
+      - name: Resolve version
         id: version
-        run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+        run: |
+          VER="${{ inputs.tag }}"
+          [ -z "$VER" ] && VER="${GITHUB_REF_NAME}"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
 
       - name: Download all artifacts
         uses: actions/download-artifact@v8
@@ -138,5 +147,6 @@ jobs:
           name: Release ${{ steps.version.outputs.version }}
           files: dist/*
           draft: false
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
           generate_release_notes: true
           token: ${{ secrets.GITHUB_TOKEN }}
