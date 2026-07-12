@@ -1,0 +1,142 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+  BINARY: rustsheng
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux-x86_64:
+    name: Linux x86_64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build -p rustsheng --release --locked
+      - name: Strip
+        run: strip target/release/rustsheng
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x86_64
+          path: target/release/rustsheng
+
+  build-linux-aarch64:
+    name: Linux aarch64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      # `cross` runs the build in a container; Cross.toml installs the arm64
+      # libudev that serialport links against.
+      - name: Install cross
+        run: cargo install cross --locked
+      - uses: Swatinem/rust-cache@v2
+      - name: Build with cross
+        run: cross build -p rustsheng --target aarch64-unknown-linux-gnu --release --locked
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-aarch64
+          path: target/aarch64-unknown-linux-gnu/release/rustsheng
+
+  build-windows-x86_64:
+    name: Windows x86_64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      - name: Install mingw-w64
+        run: sudo apt-get update && sudo apt-get install -y mingw-w64
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build -p rustsheng --target x86_64-pc-windows-gnu --release --locked
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x86_64
+          path: target/x86_64-pc-windows-gnu/release/rustsheng.exe
+
+  build-macos-x86_64:
+    name: macOS x86_64
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build -p rustsheng --target x86_64-apple-darwin --release --locked
+      - name: Strip
+        run: strip target/x86_64-apple-darwin/release/rustsheng
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-x86_64
+          path: target/x86_64-apple-darwin/release/rustsheng
+
+  build-macos-aarch64:
+    name: macOS aarch64
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build -p rustsheng --release --locked
+      - name: Strip
+        run: strip target/release/rustsheng
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-aarch64
+          path: target/release/rustsheng
+
+  create-release:
+    name: Create Release
+    needs:
+      - build-linux-x86_64
+      - build-linux-aarch64
+      - build-windows-x86_64
+      - build-macos-x86_64
+      - build-macos-aarch64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create archives
+        env:
+          VER: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p dist
+          tar -czf "dist/${BINARY}_${VER}_linux-x86_64.tar.gz"  -C linux-x86_64  .
+          tar -czf "dist/${BINARY}_${VER}_linux-aarch64.tar.gz" -C linux-aarch64 .
+          zip -j    "dist/${BINARY}_${VER}_windows-x86_64.zip"      windows-x86_64/rustsheng.exe
+          tar -czf "dist/${BINARY}_${VER}_macos-x86_64.tar.gz"  -C macos-x86_64  .
+          tar -czf "dist/${BINARY}_${VER}_macos-aarch64.tar.gz" -C macos-aarch64 .
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Release ${{ steps.version.outputs.version }}
+          files: dist/*
+          draft: false
+          generate_release_notes: true
+          token: ${{ secrets.GITHUB_TOKEN }}
