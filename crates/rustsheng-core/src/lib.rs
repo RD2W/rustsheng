@@ -4,6 +4,7 @@
 //! real hardware.
 
 pub mod client;
+pub use client::{Client, ClientError};
 pub mod eeprom;
 pub mod firmware;
 pub mod protocol;
