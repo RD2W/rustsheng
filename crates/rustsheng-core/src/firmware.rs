@@ -10,7 +10,7 @@ use log::debug;
 use crate::protocol::{crc16_xmodem, xor_firmware};
 
 pub mod cpu;
-use cpu::Cpu;
+pub use cpu::Cpu;
 
 /// Flash write block size.
 pub const BLOCK: usize = 0x100;

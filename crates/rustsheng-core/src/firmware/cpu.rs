@@ -25,6 +25,14 @@ impl Cpu {
         }
     }
 
+    /// Maximum addressable EEPROM range for this processor.
+    pub fn eeprom_limit(self) -> usize {
+        match self {
+            Self::Dp32g030 => 0x2000,
+            _ => 0x10000,
+        }
+    }
+
     /// Returns the expected CPU for a given bootloader version string (the
     /// value that `bootloader-info` and `wait_for_beacon` report), or `None`
     /// when the version cannot be mapped to a known CPU.
@@ -138,6 +146,13 @@ mod tests {
         assert_eq!(Cpu::Dp32g030.flash_limit(), 0xf000);
         assert_eq!(Cpu::Py32f030.flash_limit(), 0x10000);
         assert_eq!(Cpu::Py32f071.flash_limit(), 0x12000);
+    }
+
+    #[test]
+    fn eeprom_limits() {
+        assert_eq!(Cpu::Dp32g030.eeprom_limit(), 0x2000);
+        assert_eq!(Cpu::Py32f030.eeprom_limit(), 0x10000);
+        assert_eq!(Cpu::Py32f071.eeprom_limit(), 0x10000);
     }
 
     #[test]

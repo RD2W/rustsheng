@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use rustsheng_core::client::Client;
 use rustsheng_core::eeprom::{self, WriteMode};
-use rustsheng_core::firmware::{self, FirmwareImage};
+use rustsheng_core::firmware::{self, Cpu, FirmwareImage};
 use rustsheng_core::protocol;
 use rustsheng_core::transport::serial::{self, SerialTransport};
 
@@ -112,20 +112,22 @@ fn read_eeprom(
     offset: Option<u32>,
     size: Option<u32>,
 ) -> Result<()> {
+    let mut client = open_client(opts)?;
+    let version = client.connect().context("connecting to radio")?;
+    println!("Connected to firmware: {version}");
+
+    let cpu = eeprom_cpu(&version);
     let start = offset.unwrap_or(0) as usize;
     let len = size
         .map(|s| s as usize)
         .unwrap_or(eeprom::SIZE - start.min(eeprom::SIZE));
-    if start + len > eeprom::ADDR_SPACE {
+    let limit = cpu.eeprom_limit();
+    if start + len > limit {
         anyhow::bail!(
-            "range {start:#06x}..{:#06x} exceeds addressable EEPROM {:#06x}",
+            "range {start:#06x}..{:#06x} exceeds EEPROM limit for {cpu:?} ({limit:#06x})",
             start + len,
-            eeprom::ADDR_SPACE
         );
     }
-    let mut client = open_client(opts)?;
-    let version = client.connect().context("connecting to radio")?;
-    println!("Connected to firmware: {version}");
     let pb = progress_bar(len, "reading");
     let data = client
         .read_region(start, len, &mut |done| pb.set_position(done as u64))
@@ -194,16 +196,18 @@ fn write_eeprom_at(opts: &ConnectionOpts, data: &[u8], offset: usize, confirm: u
              Re-run with --i-know-what-im-doing to proceed."
         );
     }
-    if offset + data.len() > eeprom::ADDR_SPACE {
-        anyhow::bail!(
-            "range {offset:#06x}..{:#06x} exceeds addressable EEPROM {:#06x}",
-            offset + data.len(),
-            eeprom::ADDR_SPACE
-        );
-    }
     let mut client = open_client(opts)?;
     let version = client.connect().context("connecting to radio")?;
     println!("Connected to firmware: {version}");
+
+    let cpu = eeprom_cpu(&version);
+    let limit = cpu.eeprom_limit();
+    if offset + data.len() > limit {
+        anyhow::bail!(
+            "range {offset:#06x}..{:#06x} exceeds EEPROM limit for {cpu:?} ({limit:#06x})",
+            offset + data.len(),
+        );
+    }
     let pb = progress_bar(data.len(), "writing");
     let mut done = 0;
     while done < data.len() {
@@ -476,6 +480,12 @@ fn sniffer(opts: &ConnectionOpts) -> Result<()> {
             }
         }
     }
+}
+
+/// Returns the CPU corresponding to a bootloader version string, defaulting to
+/// `Dp32g030` when the version can't be mapped.
+fn eeprom_cpu(boot_version: &str) -> Cpu {
+    Cpu::from_boot_version(boot_version).unwrap_or(Cpu::Dp32g030)
 }
 
 /// Decodes a hex string (whitespace ignored) into bytes.
