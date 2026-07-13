@@ -72,4 +72,7 @@ Specific borrowings: the payload XOR key, CRC, session id, EEPROM commands and t
 `ORIGINAL_WRITES` table come from `k5prog`; the firmware XOR key, ADC/RSSI and the
 encrypted-firmware detection come from `k5prog-win`; the V2/V5 flash packet
 formats, AES key/IV table and `pack` logic come from `K5TOOL`. The extended
-flash-size limit for oversized custom firmware (0x14000) is derived from K5TOOL's `data.Length > 0x10000` heuristic; the bootloader-version to CPU mapping (`Cpu::from_boot_version`) is derived from forum reports of the TWHH (OUROBOROS) flasher suite; per-CPU EEPROM range limits mirror K5TOOL's `MinEepromAddr`/`MaxEepromAddr`.
+flash-size limit for oversized custom firmware (0x14000) is derived from K5TOOL's `data.Length > 0x10000` heuristic; the bootloader-version to CPU mapping (`Cpu::from_boot_version`) is derived from forum reports of the TWHH (OUROBOROS) flasher suite; per-CPU EEPROM range limits mirror K5TOOL's `MinEepromAddr`/`MaxEepromAddr`. The PY32 PID mapping
+(V2 → `0x440` / PY32F0xx, V3/K1 → `0x448` / PY32F07x) is corroborated by
+wagiminator's [`puyaisp`](https://github.com/wagiminator/MCU-Flash-Tools) PY32
+bootloader flasher.

@@ -78,4 +78,6 @@ cargo build -p rustsheng-core --no-default-features     # ядро без serial
 на эвристике `data.Length > 0x10000` из K5TOOL; сопоставление версии загрузчика с
 CPU (`Cpu::from_boot_version`) основано на форумных сообщениях о флешерах TWHH
 (OUROBOROS); ограничения диапазона EEPROM для каждого CPU основаны на
-`MinEepromAddr`/`MaxEepromAddr` из K5TOOL.
+`MinEepromAddr`/`MaxEepromAddr` из K5TOOL. Соответствие PID чипов PY32 (V2 → `0x440` /
+PY32F0xx, V3/K1 → `0x448` / PY32F07x) подтверждается загрузчиком PUYA
+[`puyaisp`](https://github.com/wagiminator/MCU-Flash-Tools) от wagiminator.
