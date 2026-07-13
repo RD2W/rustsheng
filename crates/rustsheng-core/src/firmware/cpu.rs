@@ -24,6 +24,30 @@ impl Cpu {
             Self::Py32f071 => 0x12000,
         }
     }
+
+    /// Returns the expected CPU for a given bootloader version string (the
+    /// value that `bootloader-info` and `wait_for_beacon` report), or `None`
+    /// when the version cannot be mapped to a known CPU.
+    ///
+    /// Boot-version mapping derived from forum reports of the TWHH (OUROBOROS)
+    /// flasher tools — K1_TOOL (boot 7.\*), K5_TOOL (boot 1.\*/2.\*/3.\*/4.\*),
+    /// R5_TOOL (boot 5.\*) — each targeting a specific CPU:
+    /// - `1.*` → PY32F030 (V2)
+    /// - `2.*` / `3.*` / `4.*` → DP32G030 (V1)
+    /// - `5.*` → DP32G030 (R5+)
+    /// - `7.*` → PY32F071 (V3 / K1)
+    pub fn from_boot_version(version: &str) -> Option<Self> {
+        if version.is_empty() {
+            return None;
+        }
+        match version.as_bytes()[0] {
+            b'1' => Some(Self::Py32f030),
+            b'2' | b'3' | b'4' => Some(Self::Dp32g030),
+            b'5' => Some(Self::Dp32g030),
+            b'7' => Some(Self::Py32f071),
+            _ => None,
+        }
+    }
 }
 
 /// Identifies the CPU from the raw (decrypted) firmware vector table.
@@ -114,5 +138,17 @@ mod tests {
         assert_eq!(Cpu::Dp32g030.flash_limit(), 0xf000);
         assert_eq!(Cpu::Py32f030.flash_limit(), 0x10000);
         assert_eq!(Cpu::Py32f071.flash_limit(), 0x12000);
+    }
+
+    #[test]
+    fn boot_version_maps_to_cpu() {
+        assert_eq!(Cpu::from_boot_version("1.02.01"), Some(Cpu::Py32f030));
+        assert_eq!(Cpu::from_boot_version("2.00.06"), Some(Cpu::Dp32g030));
+        assert_eq!(Cpu::from_boot_version("3.00.22"), Some(Cpu::Dp32g030));
+        assert_eq!(Cpu::from_boot_version("4.00.09"), Some(Cpu::Dp32g030));
+        assert_eq!(Cpu::from_boot_version("5.00.05"), Some(Cpu::Dp32g030));
+        assert_eq!(Cpu::from_boot_version("7.03.01"), Some(Cpu::Py32f071));
+        assert_eq!(Cpu::from_boot_version(""), None);
+        assert_eq!(Cpu::from_boot_version("99.99.99"), None);
     }
 }

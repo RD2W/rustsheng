@@ -48,6 +48,15 @@ pub enum ClientError {
     /// Flash-layer error.
     #[error(transparent)]
     Flash(#[from] crate::flash::FlashError),
+    /// CPU mismatch: the firmware image targets a different CPU than the detected radio.
+    #[error(
+        "CPU mismatch: firmware targets {firmware:?}, but the radio reports bootloader {bootloader} (expected {radio:?})"
+    )]
+    IncompatibleCpu {
+        firmware: crate::firmware::cpu::Cpu,
+        bootloader: String,
+        radio: crate::firmware::cpu::Cpu,
+    },
 }
 
 /// Battery ADC reading.
@@ -305,7 +314,21 @@ impl<T: Transport> Client<T> {
         key_number: u8,
         progress: &mut dyn FnMut(usize),
     ) -> Result<(), ClientError> {
-        let (kind, _boot) = self.wait_for_beacon()?;
+        let (kind, boot) = self.wait_for_beacon()?;
+
+        // Reject flashing when the firmware image targets a CPU different from
+        // the one the radio reports (bootloader version -> expected CPU).
+        let radio_cpu = boot
+            .as_ref()
+            .and_then(|v| crate::firmware::cpu::Cpu::from_boot_version(v));
+        if let Some(radio_cpu) = radio_cpu.filter(|c| *c != image.cpu) {
+            return Err(ClientError::IncompatibleCpu {
+                firmware: image.cpu,
+                bootloader: boot.unwrap_or_default(),
+                radio: radio_cpu,
+            });
+        }
+
         let mut proto: Box<dyn FlashProtocol> = match kind {
             FlashKind::V2 => Box::new(ProtocolV2::new()),
             FlashKind::V5 => {
