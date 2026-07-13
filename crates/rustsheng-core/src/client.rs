@@ -110,10 +110,10 @@ impl<T: Transport> Client<T> {
         let mut header = [0u8; 4];
         self.transport
             .read_exact_timeout(&mut header, self.timeout)?;
-        if header[0] != 0xAB || header[1] != 0xCD {
+        let [0xAB, 0xCD, len_lo, len_hi] = header else {
             return Err(ClientError::BadMagic);
-        }
-        let data_len = u16::from_le_bytes([header[2], header[3]]) as usize;
+        };
+        let data_len = u16::from_le_bytes([len_lo, len_hi]) as usize;
         if data_len > MAX_RESPONSE_PAYLOAD {
             return Err(ClientError::Unexpected(format!(
                 "response payload too large: {data_len}"

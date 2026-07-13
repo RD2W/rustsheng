@@ -80,13 +80,10 @@ impl AesStream {
 
     /// Encrypts `buf` (length a multiple of 16) in place, chaining CBC state.
     pub(super) fn encrypt(&mut self, buf: &mut [u8]) {
-        debug_assert!(
-            buf.len().is_multiple_of(16),
-            "AES-CBC input must be a multiple of 16"
-        );
-        for chunk in buf.chunks_exact_mut(16) {
-            self.enc
-                .encrypt_block(chunk.try_into().expect("16-byte block"));
+        let (blocks, rest) = buf.as_chunks_mut::<16>();
+        debug_assert!(rest.is_empty(), "AES-CBC input must be a multiple of 16");
+        for block in blocks {
+            self.enc.encrypt_block(block.into());
         }
     }
 }
