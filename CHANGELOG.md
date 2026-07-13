@@ -20,6 +20,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   V1 limit (0xf000) are automatically allowed — per-CPU limits (0x10000 V2,
   0x12000 V3/K1) with an extended cap of 0x14000 for oversized custom images.
 - Per-CPU flash-size limits and automatic CPU detection from the vector table.
+- Bootloader-version to CPU mapping (`Cpu::from_boot_version`) — derived from
+  forum reports of the TWHH (OUROBOROS) flasher tools.  Live flashing checks
+  that the firmware image targets the connected radio's CPU and refuses to
+  proceed on a mismatch.
+- Per-CPU EEPROM read/write range limits (V1 → 0x2000, V2/V3/K1 → 0x10000),
+  validated against the bootloader-reported CPU at runtime.
 - Offline firmware tools: `pack`, `unpack`, `parse`.
 - `sniffer` — passive datagram decoding.
 - Verbose logging (`-v`/`-vv`/`-vvv`).

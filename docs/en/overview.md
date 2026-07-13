@@ -51,6 +51,25 @@ third:
 ## Supported hardware
 
 Supports all known radio revisions — V1 (DP32G030), V2 (PY32F030), V3 and K1
-(PY32F071) — each with an appropriate flash-size limit. CPU detection is automatic
-from the firmware image. Firmware flashing (V2 and V5/AES) is cross-validated at
-the packet level but NOT tested by flashing a real radio — treat it as experimental.
+(PY32F071) — each with appropriate flash-size and EEPROM-range limits. CPU
+detection is automatic from the firmware image (for offline operations) and from
+the bootloader version the radio reports (for live operations).  Live flashing
+validates that the firmware targets the connected radio's CPU and refuses to
+proceed on a mismatch.  Firmware flashing (V2 and V5/AES) is cross-validated at
+the packet level but NOT tested by flashing a real radio — treat it as
+experimental.
+
+### Determining the radio revision
+
+The tool determines the connected radio's CPU from the **bootloader version**
+that the radio broadcasts in flash mode (command `bootloader-info`):
+
+| Boot version | CPU | Radio revision |
+|-------------|-----|----------------|
+| `2.*` / `3.*` / `4.*` | DP32G030 | V1 (K5/K6) |
+| `1.*` | PY32F030 | V2 |
+| `5.*` | DP32G030 | R5+ |
+| `7.*` | PY32F071 | V3 / K1 |
+
+EEPROM read/write ranges and flash-size limits are validated against the detected
+CPU.
