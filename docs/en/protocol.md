@@ -91,7 +91,8 @@ little-endian CRC. `rustsheng pack` produces output **byte-identical** to
 `K5TOOL -pack`. Flash size limit: `0xf000` (the bootloader lives above it).
 
 Firmware images larger than the classic V1 limit (0xf000) are automatically
-allowed up to 0x14000 to support V2/V3/K1 and custom firmware. Loading enforces
+allowed — per-CPU limits are 0x10000 for V2 and 0x12000 for V3/K1, with an extended
+cap of 0x14000 for oversized custom firmware. Loading enforces
 the two-tier limit; the flash path adds a CPU-level cap.
 
 ## Firmware flashing

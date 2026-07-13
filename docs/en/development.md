@@ -72,4 +72,4 @@ Specific borrowings: the payload XOR key, CRC, session id, EEPROM commands and t
 `ORIGINAL_WRITES` table come from `k5prog`; the firmware XOR key, ADC/RSSI and the
 encrypted-firmware detection come from `k5prog-win`; the V2/V5 flash packet
 formats, AES key/IV table and `pack` logic come from `K5TOOL`. The extended
-flash-size limit for V2/V3/K1 (0x14000) is derived from K5TOOL's `data.Length > 0x10000` heuristic.
+flash-size limit for oversized custom firmware (0x14000) is derived from K5TOOL's `data.Length > 0x10000` heuristic.
