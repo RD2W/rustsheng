@@ -62,22 +62,25 @@ impl Cpu {
 ///
 /// `raw` must be at least 0x3c (60) bytes — the ARM vector table up to and
 /// including the SysTick handler slot at offset 0x38.
+///
+/// Detection is based on the Reset vector (offset 0x04). The PY32F071
+/// bootloader resides at the beginning of flash (0x08000000–0x080027FF),
+/// so the firmware's Reset vector always points to 0x08002800 or later.
+/// DP32G030 and PY32F030 have the bootloader at the end of flash, with
+/// firmware starting at 0x08000000 — their Reset vectors cluster near
+/// 0x080000xx (or 0x000000xx in the low alias).
 pub(crate) fn detect_cpu(raw: &[u8]) -> Cpu {
     if raw.len() < 0x3c {
         return Cpu::Dp32g030;
     }
     let is_raw = raw[2] == 0x00 && raw[3] == 0x20;
 
-    let sys_tick_addr = u32::from_le_bytes([raw[0x38], raw[0x39], raw[0x3a], raw[0x3b]]);
-    // Stock PY32F071 firmwares place the Systick/LCD handler in the 0x01xxxxxx
-    // range; all other known Cortex-M0 images for these radios keep the handler
-    // in the 0x00xxxxxx or 0x08xxxxxx boot range.
-    let is_py32f071 = (sys_tick_addr >> 24) == 0x01;
-
     if is_raw {
-        if is_py32f071 {
-            Cpu::Py32f071
-        } else if raw[6] == 0x00 && raw[10] == 0x00 && raw[14] == 0x00 {
+        let reset = u32::from_le_bytes([raw[4], raw[5], raw[6], raw[7]]);
+        if reset >= 0x0800_2000 {
+            return Cpu::Py32f071;
+        }
+        if raw[6] == 0x00 && raw[10] == 0x00 && raw[14] == 0x00 {
             Cpu::Dp32g030
         } else {
             Cpu::Py32f030
@@ -122,23 +125,35 @@ mod tests {
     }
 
     #[test]
-    fn stock_v3_raw_has_non_01xx_systick_pattern() {
-        // The stock V3 raw image has its SysTick handler (offset 0x38) in the
-        // 0x08xxxxxx range, not 0x01xxxxxx.  So detect_cpu falls to the
-        // Dp32g030 arm.  Genuine Py32F071 detection (SysTick in 0x01xxxxxx)
-        // requires the dev-machine image analysed in the design spec.
+    fn stock_v3_raw_is_py32f071() {
+        // The stock V3 raw image has its Reset vector at 0x080028d5 (>=
+        // 0x08002000), which is the reliable PY32F071 marker: the bootloader
+        // occupies flash start (0x08000000–0x080027FF), pushing the firmware
+        // entry point past the 0x2000 boundary.
         let bytes = read_fw("v3_k5_raw_v1.01.07.bin");
-        assert_eq!(detect_cpu(&bytes), Cpu::Dp32g030);
+        assert_eq!(detect_cpu(&bytes), Cpu::Py32f071);
+    }
+
+    #[test]
+    fn custom_v3_is_py32f071() {
+        let bytes = read_fw("v3_custom_fusion_v4.3.2.bin");
+        assert_eq!(detect_cpu(&bytes), Cpu::Py32f071);
+    }
+
+    #[test]
+    fn custom_k1_is_py32f071() {
+        let bytes = read_fw("k1_custom_fusion_v4.3.2.bin");
+        assert_eq!(detect_cpu(&bytes), Cpu::Py32f071);
     }
 
     #[test]
     fn stock_k1_encrypted_raw_is_dp32g030() {
         let raw = read_fw("k1_packed_v7.03.01.bin");
+        // Encrypted image: is_raw is false → Dp32g030 before decryption.
         assert_eq!(detect_cpu(&raw), Cpu::Dp32g030);
-        // With the extended limit (0x14000), the K1 stock vendor image now
-        // loads successfully (71450 bytes after decryption).
+        // After decryption via FirmwareImage::load, Reset-vector check → Py32f071.
         let img = FirmwareImage::load(&raw).expect("k1 packed should load");
-        assert_eq!(img.cpu, Cpu::Dp32g030);
+        assert_eq!(img.cpu, Cpu::Py32f071, "decrypted K1 is PY32F071");
     }
 
     #[test]
@@ -168,17 +183,13 @@ mod tests {
     }
 
     #[test]
-    fn force_cpu_overrides_stock_v3_misdetection() {
+    fn force_cpu_overrides_stock_v3_detection() {
         let bytes = read_fw("v3_k5_raw_v1.01.07.bin");
         let mut image = FirmwareImage::load(&bytes).expect("load V3 stock image");
-        assert_eq!(
-            image.cpu,
-            Cpu::Dp32g030,
-            "stock V3 detected as Dp32g030 (known)"
-        );
-        // Simulate --force-cpu py32f071
-        image.cpu = Cpu::Py32f071;
-        assert_eq!(image.cpu, Cpu::Py32f071);
-        assert_eq!(image.cpu.flash_limit(), 0x12000, "V3 flash limit restored");
+        assert_eq!(image.cpu, Cpu::Py32f071, "V3 correctly detected");
+        // Simulate --force-cpu dp32g030 to override
+        image.cpu = Cpu::Dp32g030;
+        assert_eq!(image.cpu, Cpu::Dp32g030);
+        assert_eq!(image.cpu.flash_limit(), 0xf000);
     }
 }

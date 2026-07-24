@@ -15,3 +15,6 @@
 /.cursorrules
 /.github/copilot-instructions.md
 /docs/superpowers/
+
+# Research notes and hypotheses (local only)
+/docs/hypotheses.md

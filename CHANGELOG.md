@@ -25,8 +25,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   that the firmware image targets the connected radio's CPU and refuses to
   proceed on a mismatch.
 - `--force-cpu <CPU>` flag for the `flash` command to override automatic CPU
-  detection. Solves the V3/K1 misdetection problem (stock PY32F071 images are
-  detected as Dp32g030 because of the SysTick handler address pattern).
+  detection.
+- Fixed PY32F071 (V3/K1) CPU detection: replaced the SysTick BIT-band heuristic
+  (0x01xxxxxx, never triggered on real firmware) with a Reset vector check.
+  PY32F071 bootloader sits at flash start (0x08000000–0x080027FF), so the
+  firmware Reset vector is always ≥ 0x08002800. Now detected correctly without
+  `--force-cpu`.
 - Per-CPU EEPROM read/write range limits (V1 → 0x2000, V2/V3/K1 → 0x10000),
   validated against the bootloader-reported CPU at runtime.
 - Offline firmware tools: `pack`, `unpack`, `parse`.

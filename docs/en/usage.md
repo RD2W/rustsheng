@@ -83,7 +83,7 @@ bootloader protocol (V2 or V5) is chosen from the beacon.
 | `--dry-run` | Build the packet stream and write it to a file **without opening the port**. |
 | `--protocol v2\|v5` | Protocol for `--dry-run` (live mode auto-detects). |
 | `-o, --output <FILE>` | `--dry-run` output (default `<input>.packets.bin`). |
-| `--force-cpu <CPU>` | Force a specific CPU (`dp32g030`, `py32f030`, `py32f071`) — override automatic detection (e.g. for V3/K1). |
+| `--force-cpu <CPU>` | Force a specific CPU (`dp32g030`, `py32f030`, `py32f071`) — for non-standard builds when auto-detection fails. |
 | `--i-know-what-im-doing` | Repeatable confirmation. Live V2 needs ≥3, V5 needs ≥5. |
 
 ```bash
