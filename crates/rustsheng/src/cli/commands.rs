@@ -61,6 +61,7 @@ pub fn dispatch(command: Command) -> Result<()> {
             protocol,
             output,
             confirm,
+            force_cpu,
         } => flash(
             port.as_deref(),
             speed,
@@ -71,6 +72,7 @@ pub fn dispatch(command: Command) -> Result<()> {
             protocol.into(),
             output.as_deref(),
             confirm,
+            force_cpu,
         ),
         Command::Unpack { input, output } => unpack(&input, output.as_deref()),
         Command::Pack {
@@ -322,9 +324,16 @@ fn flash(
     protocol: rustsheng_core::flash::FlashKind,
     output: Option<&Path>,
     confirm: u8,
+    force_cpu: Option<crate::cli::ForceCpuArg>,
 ) -> Result<()> {
+    use rustsheng_core::firmware::Cpu;
     let bytes = fs::read(input).with_context(|| format!("reading {}", input.display()))?;
-    let image = FirmwareImage::load(&bytes).context("parsing firmware image")?;
+    let mut image = FirmwareImage::load(&bytes).context("parsing firmware image")?;
+    if let Some(forced) = force_cpu {
+        let cpu: Cpu = forced.into();
+        println!("Overriding detected CPU {:?} -> {:?}", image.cpu, cpu);
+        image.cpu = cpu;
+    }
     if let Some(v) = &image.embedded_version {
         println!("Firmware file version: {v}");
     }

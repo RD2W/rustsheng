@@ -90,6 +90,7 @@ rustsheng read-calibration -p /dev/ttyUSB0 -o calib.raw
 | `--dry-run` | Собрать поток пакетов и записать в файл **без открытия порта**. |
 | `--protocol v2\|v5` | Протокол для `--dry-run` (в реальном режиме автоопределяется). |
 | `-o, --output <FILE>` | Выходной файл для `--dry-run` (по умолчанию `<input>.packets.bin`). |
+| `--force-cpu <CPU>` | Принудительно указать CPU (`dp32g030`, `py32f030`, `py32f071`) — для обхода неверного автоопределения (напр. V3/K1). |
 | `--i-know-what-im-doing` | Повторяемое подтверждение. Для реального V2 нужно ≥3, для V5 — ≥5. |
 
 ```bash
@@ -98,6 +99,10 @@ rustsheng flash -i firmware.bin --dry-run -o packets.bin
 
 # Реальная прошивка (радиостанция в режиме прошивки) — ТРЕБУЕТ подтверждения:
 rustsheng flash -p /dev/ttyUSB0 -i firmware.bin \
+    --i-know-what-im-doing --i-know-what-im-doing --i-know-what-im-doing
+
+# Принудительное указание CPU, если автоопределение ошибается (напр. V3 → PY32F071):
+rustsheng flash -p /dev/ttyUSB0 -i firmware.bin --force-cpu py32f071 \
     --i-know-what-im-doing --i-know-what-im-doing --i-know-what-im-doing
 ```
 

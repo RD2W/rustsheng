@@ -158,6 +158,9 @@ pub enum Command {
         output: Option<PathBuf>,
         #[arg(long = "i-know-what-im-doing", action = clap::ArgAction::Count)]
         confirm: u8,
+        /// Override automatic CPU detection (e.g. for misdetected V3/PY32F071 images).
+        #[arg(long, value_enum)]
+        force_cpu: Option<ForceCpuArg>,
     },
 
     /// Decrypt a vendor-packed firmware image to a raw image (offline).
@@ -222,6 +225,30 @@ impl From<FlashProtocolArg> for rustsheng_core::flash::FlashKind {
     }
 }
 
+/// CPU override for `--force-cpu`.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum ForceCpuArg {
+    /// V1, DP32G030.
+    #[value(name = "dp32g030")]
+    Dp32g030,
+    /// V2, PY32F030.
+    #[value(name = "py32f030")]
+    Py32f030,
+    /// V3 / K1, PY32F071.
+    #[value(name = "py32f071")]
+    Py32f071,
+}
+
+impl From<ForceCpuArg> for rustsheng_core::firmware::Cpu {
+    fn from(f: ForceCpuArg) -> Self {
+        match f {
+            ForceCpuArg::Dp32g030 => Self::Dp32g030,
+            ForceCpuArg::Py32f030 => Self::Py32f030,
+            ForceCpuArg::Py32f071 => Self::Py32f071,
+        }
+    }
+}
+
 /// CLI mirror of [`rustsheng_core::eeprom::WriteMode`].
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
 pub enum WriteModeArg {
@@ -240,5 +267,18 @@ impl From<WriteModeArg> for rustsheng_core::eeprom::WriteMode {
             WriteModeArg::Most => Self::Most,
             WriteModeArg::All => Self::All,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rustsheng_core::firmware::Cpu;
+
+    #[test]
+    fn force_cpu_arg_maps_to_cpu() {
+        assert_eq!(Cpu::from(ForceCpuArg::Dp32g030), Cpu::Dp32g030);
+        assert_eq!(Cpu::from(ForceCpuArg::Py32f030), Cpu::Py32f030);
+        assert_eq!(Cpu::from(ForceCpuArg::Py32f071), Cpu::Py32f071);
     }
 }

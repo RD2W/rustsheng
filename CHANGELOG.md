@@ -24,12 +24,18 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   forum reports of the TWHH (OUROBOROS) flasher tools.  Live flashing checks
   that the firmware image targets the connected radio's CPU and refuses to
   proceed on a mismatch.
+- `--force-cpu <CPU>` flag for the `flash` command to override automatic CPU
+  detection. Solves the V3/K1 misdetection problem (stock PY32F071 images are
+  detected as Dp32g030 because of the SysTick handler address pattern).
 - Per-CPU EEPROM read/write range limits (V1 → 0x2000, V2/V3/K1 → 0x10000),
   validated against the bootloader-reported CPU at runtime.
 - Offline firmware tools: `pack`, `unpack`, `parse`.
 - `sniffer` — passive datagram decoding.
 - Verbose logging (`-v`/`-vv`/`-vvv`).
 - Full bilingual documentation under `docs/en` and `docs/ru`.
+- Cross-platform Python test scripts (`rustsheng_test_read.py`,
+  `rustsheng_test_write.py`, `rustsheng_flash.py`) for automated hardware
+  validation.
 
 ### Notes
 - Firmware flashing is cross-validated against `K5TOOL` at the packet level but

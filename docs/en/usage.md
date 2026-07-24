@@ -83,6 +83,7 @@ bootloader protocol (V2 or V5) is chosen from the beacon.
 | `--dry-run` | Build the packet stream and write it to a file **without opening the port**. |
 | `--protocol v2\|v5` | Protocol for `--dry-run` (live mode auto-detects). |
 | `-o, --output <FILE>` | `--dry-run` output (default `<input>.packets.bin`). |
+| `--force-cpu <CPU>` | Force a specific CPU (`dp32g030`, `py32f030`, `py32f071`) — override automatic detection (e.g. for V3/K1). |
 | `--i-know-what-im-doing` | Repeatable confirmation. Live V2 needs ≥3, V5 needs ≥5. |
 
 ```bash
@@ -91,6 +92,10 @@ rustsheng flash -i firmware.bin --dry-run -o packets.bin
 
 # Live flash (radio in flash mode) — REQUIRES confirmation:
 rustsheng flash -p /dev/ttyUSB0 -i firmware.bin \
+    --i-know-what-im-doing --i-know-what-im-doing --i-know-what-im-doing
+
+# Force CPU override when automatic detection gets it wrong (e.g. V3 → PY32F071):
+rustsheng flash -p /dev/ttyUSB0 -i firmware.bin --force-cpu py32f071 \
     --i-know-what-im-doing --i-know-what-im-doing --i-know-what-im-doing
 ```
 

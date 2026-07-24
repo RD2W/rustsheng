@@ -166,4 +166,19 @@ mod tests {
         assert_eq!(Cpu::from_boot_version(""), None);
         assert_eq!(Cpu::from_boot_version("99.99.99"), None);
     }
+
+    #[test]
+    fn force_cpu_overrides_stock_v3_misdetection() {
+        let bytes = read_fw("v3_k5_raw_v1.01.07.bin");
+        let mut image = FirmwareImage::load(&bytes).expect("load V3 stock image");
+        assert_eq!(
+            image.cpu,
+            Cpu::Dp32g030,
+            "stock V3 detected as Dp32g030 (known)"
+        );
+        // Simulate --force-cpu py32f071
+        image.cpu = Cpu::Py32f071;
+        assert_eq!(image.cpu, Cpu::Py32f071);
+        assert_eq!(image.cpu.flash_limit(), 0x12000, "V3 flash limit restored");
+    }
 }
