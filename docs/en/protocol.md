@@ -90,9 +90,10 @@ Write modes:
 little-endian CRC. `rustsheng pack` produces output **byte-identical** to
 `K5TOOL -pack`. Flash size limit: `0xf000` (the bootloader lives above it).
 
-Firmware images larger than the classic V1 limit (0xf000) are automatically
-allowed — per-CPU limits are 0x10000 for V2 and 0x12000 for V3/K1, with an extended
-cap of 0x14000 for oversized custom firmware. Loading enforces
+Firmware images receive a per-CPU size limit during loading: 0xf000 for V1
+(DP32G030), 0x10000 for V2 (PY32F030), and 0x12000 for V3/K1 (PY32F071). This
+protects the bootloader from being overwritten — images exceeding the limit are
+rejected.
 the two-tier limit; the flash path adds a CPU-level cap.
 
 ## Firmware flashing

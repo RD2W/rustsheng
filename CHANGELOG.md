@@ -16,9 +16,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   **V5** (AES-CBC-128, behind the default `flash-v5` feature). Includes a
   `--dry-run` packet preview and V2≥3 / V5≥5 confirmation gating.
 - Firmware loading now supports V2 (PY32F030), V3 and K1 (PY32F071) radio
-  revisions, including custom firmware images. Images larger than the classic
-  V1 limit (0xf000) are automatically allowed — per-CPU limits (0x10000 V2,
-  0x12000 V3/K1) with an extended cap of 0x14000 for oversized custom images.
+  revisions, including custom firmware images. Per-CPU flash limits are
+  strictly enforced: 0xf000 (V1), 0x10000 (V2), 0x12000 (V3/K1).
 - Per-CPU flash-size limits and automatic CPU detection from the vector table.
 - Bootloader-version to CPU mapping (`Cpu::from_boot_version`) — derived from
   forum reports of the TWHH (OUROBOROS) flasher tools.  Live flashing checks

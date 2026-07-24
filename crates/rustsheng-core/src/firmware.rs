@@ -64,14 +64,7 @@ impl FirmwareImage {
         if looks_raw(bytes) {
             let data = bytes.to_vec();
             let cpu = cpu::detect_cpu(&data);
-            let limit = if data.len() > cpu.flash_limit() {
-                // Images larger than the detected CPU's classic limit likely
-                // belong to newer variants (PY32F030/F071); allow up to 80 KB.
-                data.len().min(0x14000)
-            } else {
-                cpu.flash_limit()
-            };
-            if data.len() > limit {
+            if data.len() > cpu.flash_limit() {
                 return Err(FirmwareError::TooLarge);
             }
             debug!("firmware: raw image ({} bytes, CPU {cpu:?})", data.len());
@@ -111,10 +104,7 @@ impl FirmwareImage {
         );
 
         if data.len() > cpu.flash_limit() {
-            let limit = data.len().min(0x14000);
-            if data.len() > limit {
-                return Err(FirmwareError::TooLarge);
-            }
+            return Err(FirmwareError::TooLarge);
         }
         Ok(Self {
             data,
